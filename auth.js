@@ -22,7 +22,8 @@ const courseNames = {
   "vibe-coding-adsense": "Vibe Coding & Google AdSense",
   "ui-ux-design": "UI/UX Design",
   "graphics-design": "Graphics Design",
-  "mobile-app-development": "Mobile App Development"
+  "mobile-app-development": "Mobile App Development",
+  "cybersecurity-fundamentals": "Cybersecurity Fundamentals"
 };
 const selectedCourse = courseNames[query.get("course")];
 if (selectedCourse) {
