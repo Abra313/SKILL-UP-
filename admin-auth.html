@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#10383a">
+    <meta name="description" content="Local administrator access for the SKILL-UP prototype.">
+    <title>Administrator access — SKILL-UP</title>
+    <link rel="icon" type="image/png" href="assets/skill-up-logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="auth.css?v=2">
+  </head>
+  <body>
+    <main class="auth-page">
+      <a class="back-home" href="index.html"><span aria-hidden="true">←</span> Back to website</a>
+      <section class="auth-card" aria-label="Local administrator access">
+        <div class="auth-form-panel">
+          <a class="auth-brand" href="index.html" aria-label="SKILL-UP home"><img src="assets/skill-up-logo.png" alt="SKILL-UP"></a>
+          <div class="auth-intro">
+            <p class="eyebrow"><span></span> ADMINISTRATOR WORKSPACE</p>
+            <h1 id="admin-auth-heading">First-time admin setup</h1>
+            <p id="admin-auth-subheading">Create local admin access, then sign in using the shared login page.</p>
+          </div>
+          <div class="prototype-note"><span aria-hidden="true">ⓘ</span><p>This is a local demo gate only—not secure authentication. Credentials and dashboard data are stored in this browser and can be changed or bypassed by its user.</p></div>
+          <div id="admin-auth-message" class="course-selection" role="status" hidden></div>
+          <form id="admin-setup-form" novalidate>
+            <div class="learner-local-callout"><strong>First-time local setup</strong><span>Enter the administrator email and password you want to use on this browser. You will be asked to log in after setup.</span></div>
+            <div class="form-field"><label for="admin-setup-email">Administrator email</label><input id="admin-setup-email" type="email" autocomplete="username" required><span class="field-error" id="admin-setup-email-error"></span></div>
+            <div class="form-field"><label for="admin-setup-password">Create password</label><div class="password-control"><input id="admin-setup-password" type="password" autocomplete="new-password" minlength="8" required><button type="button" class="password-toggle" data-toggle-password="admin-setup-password">Show</button></div><span class="field-error" id="admin-setup-password-error"></span></div>
+            <div class="form-field"><label for="admin-setup-confirm">Confirm password</label><input id="admin-setup-confirm" type="password" autocomplete="new-password" minlength="8" required><span class="field-error" id="admin-setup-confirm-error"></span></div>
+            <button class="submit-button" type="submit"><span>Save local admin access</span><span aria-hidden="true">↗</span></button>
+          </form>
+          <p class="auth-switch"><a href="auth.html?mode=login">Go to shared login</a></p>
+          <p class="auth-legal">Do not use a password you use anywhere else. A backend is required before this dashboard can be protected for real.</p>
+        </div>
+        <aside class="auth-aside">
+          <div class="aside-orb aside-orb-one"></div><div class="aside-orb aside-orb-two"></div>
+          <div class="aside-content">
+            <p class="aside-kicker"><span>✳</span> SKILL-UP ADMIN</p>
+            <h2>Manage your<br>learning space.</h2>
+            <p>Access local course, learner, finance and content management tools for this prototype.</p>
+            <div class="aside-points">
+              <div><span class="point-icon">▤</span><p><strong>Manage courses</strong><small>Review the catalogue and learning content.</small></p></div>
+              <div><span class="point-icon point-violet">♙</span><p><strong>Support learners</strong><small>Explore student records and learning activity.</small></p></div>
+              <div><span class="point-icon point-coral">⚙</span><p><strong>Local prototype</strong><small>Changes stay in this browser.</small></p></div>
+            </div>
+            <div class="aside-footer"><span>LOCAL ADMIN PREVIEW</span><span class="aside-flower">✳</span></div>
+          </div>
+        </aside>
+      </section>
+    </main>
+    <div class="auth-toast" id="admin-auth-toast" role="status" aria-live="polite" hidden></div>
+    <script src="admin-auth.js?v=2"></script>
+  </body>
+</html>

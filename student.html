@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#10383a">
+    <meta name="description" content="SKILL-UP learner portal.">
+    <title>Learner dashboard — SKILL-UP</title>
+    <link rel="icon" type="image/png" href="assets/skill-up-logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="student.css?v=2">
+  </head>
+  <body>
+    <div class="learner-app">
+      <aside class="learner-sidebar" id="learner-sidebar">
+        <a class="learner-brand" href="index.html" aria-label="SKILL-UP home"><img src="assets/skill-up-logo.png" alt="SKILL-UP"><span>LEARNER</span></a>
+        <div class="learner-workspace-label">YOUR LEARNING SPACE</div>
+        <nav class="learner-nav" aria-label="Learner navigation">
+          <button class="learner-nav-item active" data-view="dashboard"><span>⌂</span>Overview</button>
+          <button class="learner-nav-item" data-view="catalog"><span>▤</span>Explore courses</button>
+          <button class="learner-nav-item" data-view="learning"><span>▷</span>My learning</button>
+          <button class="learner-nav-item" data-view="certificates"><span>✦</span>Certificates</button>
+          <button class="learner-nav-item" data-view="referrals"><span>⇧</span>Referral programme</button>
+          <button class="learner-nav-item" data-view="profile"><span>⚙</span>Profile &amp; settings</button>
+        </nav>
+        <div class="learner-sidebar-bottom">
+          <div class="learner-storage-note"><span class="storage-dot"></span><div><strong>Local account</strong><small>Saved on this device</small></div></div>
+          <a class="learner-public-link" href="index.html"><span>↖</span> Visit SKILL-UP</a>
+          <div class="learner-user" id="sidebar-user"></div>
+        </div>
+      </aside>
+      <div class="learner-main-shell">
+        <header class="learner-topbar">
+          <button class="learner-menu-toggle" type="button" aria-label="Open learner navigation" aria-expanded="false">☰</button>
+          <div class="learner-breadcrumb"><span>My workspace</span><b>/</b><strong id="learner-current-page">Overview</strong></div>
+          <div class="learner-top-actions"><span class="learner-demo-pill"><i></i> Local account</span><button class="learner-notification-button" type="button" data-action="announcements" aria-label="Open announcements">♧<span class="notification-dot"></span></button><button class="learner-top-avatar" type="button" data-view="profile" aria-label="Open profile">A</button></div>
+        </header>
+        <main class="learner-content" id="learner-content" tabindex="-1"></main>
+      </div>
+    </div>
+    <div class="learner-toast-region" id="learner-toast-region" aria-live="polite"></div>
+    <div class="learner-modal-layer" id="learner-modal-layer" hidden>
+      <div class="learner-modal-backdrop" data-close-learner-modal></div>
+      <section class="learner-modal" role="dialog" aria-modal="true" aria-labelledby="learner-modal-title">
+        <header class="learner-modal-header"><div><p>SKILL-UP LEARNER SPACE</p><h2 id="learner-modal-title"></h2></div><button class="learner-icon-button" type="button" data-close-learner-modal aria-label="Close dialog">×</button></header>
+        <div class="learner-modal-body" id="learner-modal-body"></div>
+      </section>
+    </div>
+    <script src="student.js"></script>
+  </body>
+</html>
