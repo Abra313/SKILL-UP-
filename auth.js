@@ -7,11 +7,8 @@ const submitLabel = document.querySelector("#submit-label");
 const switchCopy = document.querySelector("#auth-switch-copy");
 const passwordInput = document.querySelector("#password");
 const passwordToggle = document.querySelector(".password-toggle");
+const supabaseClient = window.skillUpSupabase;
 const query = new URLSearchParams(window.location.search);
-const AUTH_USERS_KEY = "skillup-local-accounts-v1";
-const AUTH_SESSION_KEY = "skillup-local-session-v1";
-const ADMIN_CREDENTIAL_KEY = "skillup-local-admin-credential-v1";
-const ADMIN_SESSION_KEY = "skillup-local-admin-session-v1";
 let mode = query.get("mode") === "signup" ? "signup" : "login";
 let messageTimer;
 const courseNames = {
@@ -31,8 +28,6 @@ if (selectedCourse) {
   document.querySelector("#course-selection").hidden = false;
 }
 if (query.get("registered") === "1") {
-  const registeredEmail = query.get("email");
-  if (registeredEmail) document.querySelector("#email").value = registeredEmail;
   showMessage("Your account was created. Log in with your email and password to continue.");
 }
 if (query.get("admin") === "1") {
@@ -112,30 +107,20 @@ function validateForm() {
   return !firstInvalid;
 }
 
-function readAccounts() {
-  const saved = localStorage.getItem(AUTH_USERS_KEY);
-  if (!saved) return [];
-  const accounts = JSON.parse(saved);
-  if (!Array.isArray(accounts)) throw new Error("Saved account data is invalid.");
-  return accounts;
+async function routeAuthenticatedUser(user) {
+  const { data: profile, error } = await supabaseClient
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (error) throw new Error(`Could not load your account role. Run supabase/schema.sql first. ${error.message}`);
+  if (!profile) throw new Error("Your Supabase profile is missing. Run supabase/schema.sql and sign in again.");
+  if (profile.role === "admin") window.location.assign("admin.html");
+  else window.location.assign("student.html");
 }
 
-function bytesToHex(bytes) {
-  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function passwordDigest(password, salt) {
-  if (!window.crypto?.subtle) throw new Error("Secure password hashing is unavailable in this browser. Open the site using localhost or HTTPS.");
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: encoder.encode(salt), iterations: 120000, hash: "SHA-256" }, key, 256);
-  return bytesToHex(bits);
-}
-
-function localAuthError(error) {
-  showMessage(error instanceof DOMException && error.name === "QuotaExceededError"
-    ? "Browser storage is full. Free up space and try again."
-    : error.message || "Could not access local account storage. Check browser storage permissions and try again.");
+function showAuthError(error) {
+  showMessage(error?.message || "Supabase could not complete this request.");
 }
 
 modeTabs.forEach((tab) => tab.addEventListener("click", () => setMode(tab.dataset.mode)));
@@ -147,69 +132,31 @@ document.addEventListener("click", (event) => {
 authForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!validateForm()) return;
+  if (!supabaseClient) {
+    showMessage("Supabase is not configured. Check supabase-client.js and reload this page.");
+    return;
+  }
   const email = document.querySelector("#email").value.trim().toLowerCase();
   const submitButton = authForm.querySelector('button[type="submit"]');
   submitButton.disabled = true;
   try {
-    const accounts = readAccounts();
     if (mode === "signup") {
-      if (accounts.some((account) => account.email === email)) {
-        setError(document.querySelector("#email"), document.querySelector("#email-error"), "An account with this email already exists. Log in instead.");
-        return;
-      }
-      const salt = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
-      const account = {
-        id: `local-${crypto.randomUUID()}`,
-        name: document.querySelector("#full-name").value.trim(),
+      const { data, error } = await supabaseClient.auth.signUp({
         email,
-        role: "learner",
-        passwordSalt: salt,
-        passwordHash: await passwordDigest(passwordInput.value, salt),
-        createdAt: new Date().toISOString()
-      };
-      accounts.push(account);
-      localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(accounts));
-      localStorage.removeItem(AUTH_SESSION_KEY);
-      const loginURL = new URL("auth.html", window.location.href);
-      loginURL.searchParams.set("mode", "login");
-      loginURL.searchParams.set("registered", "1");
-      loginURL.searchParams.set("email", account.email);
-      if (query.get("course")) loginURL.searchParams.set("course", query.get("course"));
-      window.location.assign(loginURL.href);
+        password: passwordInput.value,
+        options: { data: { full_name: document.querySelector("#full-name").value.trim() } }
+      });
+      if (error) throw error;
+      if (data.session && data.user) await routeAuthenticatedUser(data.user);
+      else showMessage("Account created. Check your email to confirm the account, then log in.");
       return;
     }
 
-    const savedAdmin = localStorage.getItem(ADMIN_CREDENTIAL_KEY);
-    const adminCredential = savedAdmin ? JSON.parse(savedAdmin) : null;
-    if (adminCredential?.email === email && adminCredential.salt && adminCredential.passwordHash) {
-      if (adminCredential.passwordHash !== await passwordDigest(passwordInput.value, adminCredential.salt)) {
-        showMessage("Email or password is incorrect.");
-        return;
-      }
-      localStorage.removeItem(AUTH_SESSION_KEY);
-      localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify({ email, role: "admin" }));
-      window.location.assign("admin.html");
-      return;
-    }
-
-    const account = accounts.find((item) => item.email === email);
-    if (!account || !account.passwordSalt || !account.passwordHash || account.passwordHash !== await passwordDigest(passwordInput.value, account.passwordSalt)) {
-      showMessage("Email, password, or account type is incorrect.");
-      return;
-    }
-    if (account.role === "admin") {
-      showMessage("Administrator sign-in is not available from public local accounts.");
-      return;
-    }
-    if (account.role !== "learner") {
-      account.role = "learner";
-      localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(accounts));
-    }
-    localStorage.removeItem(ADMIN_SESSION_KEY);
-    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({ email: account.email, role: "learner", name: account.name }));
-    window.location.assign("student.html");
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: passwordInput.value });
+    if (error) throw error;
+    await routeAuthenticatedUser(data.user);
   } catch (error) {
-    localAuthError(error);
+    showAuthError(error);
   } finally {
     submitButton.disabled = false;
   }
@@ -226,7 +173,17 @@ passwordToggle.addEventListener("click", () => {
 
 document.querySelector("#forgot-password").addEventListener("click", (event) => {
   event.preventDefault();
-  showMessage("Password reset is unavailable for local accounts. Lost passwords cannot be recovered in this prototype.");
+  if (!supabaseClient) {
+    showMessage("Supabase is not configured. Check supabase-client.js and reload this page.");
+    return;
+  }
+  const email = document.querySelector("#email").value.trim().toLowerCase();
+  if (!email) {
+    showMessage("Enter your email address first, then choose Forgot password.");
+    return;
+  }
+  supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/auth.html` })
+    .then(({ error }) => error ? showAuthError(error) : showMessage("If the account exists, Supabase has sent a password reset link."));
 });
 
 document.querySelector("#google-button").addEventListener("click", () => {
@@ -245,4 +202,5 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+if (!supabaseClient) showMessage("Supabase is not configured. Check supabase-client.js.");
 setMode(mode);

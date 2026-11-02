@@ -1,21 +1,27 @@
-(() => {
-const ADMIN_CREDENTIAL_KEY = "skillup-local-admin-credential-v1";
-const ADMIN_SESSION_KEY = "skillup-local-admin-session-v1";
-let adminSession;
-let adminCredential;
-try {
-  adminSession = JSON.parse(localStorage.getItem(ADMIN_SESSION_KEY) || "null");
-  adminCredential = JSON.parse(localStorage.getItem(ADMIN_CREDENTIAL_KEY) || "null");
-} catch {
-  adminSession = null;
-  adminCredential = null;
+(async () => {
+const supabaseClient = window.skillUpSupabase;
+if (!supabaseClient) {
+  window.location.replace("auth.html?mode=login&admin=1");
+  return;
 }
-if (adminSession?.role !== "admin" || !adminSession.email || adminSession.email !== adminCredential?.email) {
-  window.location.replace(`auth.html?mode=login&admin=1&email=${encodeURIComponent(adminSession?.email || "")}`);
+const { data: { session } } = await supabaseClient.auth.getSession();
+if (!session) {
+  window.location.replace("auth.html?mode=login&admin=1");
+  return;
+}
+const { data: adminProfile, error: profileError } = await supabaseClient
+  .from("profiles")
+  .select("role")
+  .eq("id", session.user.id)
+  .maybeSingle();
+if (profileError || adminProfile?.role !== "admin") {
+  await supabaseClient.auth.signOut();
+  window.location.replace("auth.html?mode=login&admin=1");
   return;
 }
 
 const STORAGE_KEY = "skillup-admin-prototype-v1";
+const WORKSPACE_ID = "main";
 const mainContent = document.querySelector("#main-content");
 const modalLayer = document.querySelector("#modal-layer");
 const modalTitle = document.querySelector("#modal-title");
@@ -142,37 +148,94 @@ function escapeHTML(value) {
   })[character]);
 }
 
-function readData() {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) {
-      const fresh = initialState();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
-      return fresh;
-    }
-    const parsed = JSON.parse(stored);
-    const defaults = initialState();
-    return Object.fromEntries(Object.keys(defaults).map((key) => [key, parsed[key] ?? defaults[key]]));
-  } catch (error) {
-    window.setTimeout(() => notify("Could not read local data. This session is using sample data; existing stored data was left untouched.", "error"), 0);
-    return initialState();
+async function readData() {
+  const [
+    { data: remoteWorkspace, error: workspaceError },
+    { data: remoteCourses, error: coursesError },
+    { data: remoteProfiles, error: profilesError },
+    { data: remoteEnrollments, error: enrollmentsError }
+  ] = await Promise.all([
+    supabaseClient.from("admin_workspaces").select("data").eq("id", WORKSPACE_ID).maybeSingle(),
+    supabaseClient.from("courses").select("id,status,data"),
+    supabaseClient.from("profiles").select("id,email,full_name,role,created_at"),
+    supabaseClient.from("enrollments").select("user_id,course_id")
+  ]);
+  if (workspaceError) throw workspaceError;
+  if (coursesError) throw coursesError;
+  if (profilesError) throw profilesError;
+  if (enrollmentsError) throw enrollmentsError;
+
+  let legacyData = null;
+  if (!remoteWorkspace) {
+    try { legacyData = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); } catch { legacyData = null; }
   }
+  const defaults = initialState();
+  const source = remoteWorkspace?.data || legacyData || defaults;
+  const loaded = Object.fromEntries(Object.keys(defaults).map((key) => [key, source[key] ?? defaults[key]]));
+  loaded.courses = remoteCourses.length ? remoteCourses.map((course) => ({ ...course.data, status: course.status })) : loaded.courses;
+  const sampleStudents = loaded.students.filter((student) => !student.source);
+  const enrollmentsByUser = new Map();
+  remoteEnrollments.forEach((enrollment) => {
+    const courseIds = enrollmentsByUser.get(enrollment.user_id) || [];
+    courseIds.push(enrollment.course_id);
+    enrollmentsByUser.set(enrollment.user_id, courseIds);
+  });
+  loaded.students = [
+    ...remoteProfiles.filter((profile) => profile.role !== "admin").map((profile) => ({
+      id: profile.id,
+      name: profile.full_name || profile.email,
+      email: profile.email,
+      joined: profile.created_at.slice(0, 10),
+      status: "Active",
+      courses: enrollmentsByUser.get(profile.id) || [],
+      progress: 0,
+      source: "supabase"
+    })),
+    ...sampleStudents
+  ];
+
+  if (!remoteWorkspace) {
+    const { error } = await supabaseClient.from("admin_workspaces").upsert({ id: WORKSPACE_ID, data: loaded });
+    if (error) throw error;
+  }
+  if (!remoteCourses.length && loaded.courses.length) {
+    const { error } = await supabaseClient.from("courses").upsert(loaded.courses.map((course) => ({ id: course.id, status: course.status, data: course })));
+    if (error) throw error;
+  }
+  return loaded;
 }
 
-let state = readData();
+let state;
+try {
+  state = await readData();
+} catch (error) {
+  mainContent.innerHTML = `<section class="panel"><div class="panel-body"><h2>Could not connect to Supabase</h2><p>${escapeHTML(error.message || "Check the database schema and project configuration, then reload.")}</p></div></section>`;
+  return;
+}
 let activeView = "dashboard";
 let chartRange = "week";
 let activeFilters = { search: "", status: "All" };
 let modalPreviousFocus = null;
 
+let persistQueue = Promise.resolve();
 function persist() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    return true;
-  } catch (error) {
-    notify("Could not save to this device. Storage may be full or unavailable.", "error");
-    return false;
-  }
+  const snapshot = JSON.parse(JSON.stringify(state));
+  snapshot.students = snapshot.students.filter((student) => student.source !== "supabase");
+  persistQueue = persistQueue.then(async () => {
+    const { error: workspaceError } = await supabaseClient.from("admin_workspaces").upsert({ id: WORKSPACE_ID, data: snapshot });
+    if (workspaceError) throw workspaceError;
+    const { error: coursesError } = await supabaseClient.from("courses").upsert(snapshot.courses.map((course) => ({ id: course.id, status: course.status, data: course })));
+    if (coursesError) throw coursesError;
+    const { data: storedCourses, error: storedCoursesError } = await supabaseClient.from("courses").select("id");
+    if (storedCoursesError) throw storedCoursesError;
+    const activeIds = new Set(snapshot.courses.map((course) => course.id));
+    const removedIds = storedCourses.filter((course) => !activeIds.has(course.id)).map((course) => course.id);
+    if (removedIds.length) {
+      const { error: deleteError } = await supabaseClient.from("courses").delete().in("id", removedIds);
+      if (deleteError) throw deleteError;
+    }
+  }).catch((error) => notify(`Supabase could not save this change: ${error.message || "Database request failed."}`, "error"));
+  return true;
 }
 
 function commit(mutator, message) {
@@ -316,7 +379,7 @@ function renderDashboard() {
   const registrations = [...state.students].sort((a, b) => b.joined.localeCompare(a.joined)).slice(0, 5).map((student, index) => `<div class="activity-item">${avatar(student.name, ["avatar-blue", "avatar-rose", "avatar-violet", "avatar-amber", ""][index])}<div class="activity-copy"><strong>${escapeHTML(student.name)}</strong><small>${escapeHTML(student.email)}</small></div><span class="muted">${relativeDate(student.joined)}</span></div>`).join("");
   const rangeLabel = { day: "Today", week: "This week", month: "This month" }[chartRange];
   return `${heading("Dashboard overview", "Welcome back. Here's what's happening across your learning platform today.", `<button class="button button-soft" data-action="export-report"><span class="button-icon">↓</span> Export report</button>`)}
-    <div class="inline-note"><span>ⓘ</span><div><strong>Local demo workspace.</strong> Numbers and activity below are sample records saved in this browser—not live payments, real student accounts, or verified platform analytics.</div></div>
+    <div class="inline-note"><span>ⓘ</span><div><strong>Supabase workspace.</strong> Workspace edits are saved to the database. The displayed payment, activity, and learner metrics remain sample records, not verified platform analytics.</div></div>
     <section class="stats-grid" aria-label="Platform totals">${stats}</section>
     <div class="dashboard-grid">
       <section class="panel"><div class="panel-header"><div><h2>Revenue analytics</h2><p>${rangeLabel} performance · gross successful sales</p></div><div class="chart-controls" role="group" aria-label="Chart time range">${["day", "week", "month"].map((range) => `<button class="chart-range${chartRange === range ? " active" : ""}" data-range="${range}">${{ day: "Daily", week: "Weekly", month: "Monthly" }[range]}</button>`).join("")}</div></div><div class="panel-body"><div class="chart-legend"><span><i class="legend-dot"></i>Course revenue</span><span class="muted">NGN</span></div><div class="chart-wrap">${chartMarkup()}</div></div></section>
@@ -346,10 +409,10 @@ function renderStudents() {
   const search = activeFilters.search.toLowerCase();
   const filtered = state.students.filter((student) => (`${student.name} ${student.email} ${student.id}`).toLowerCase().includes(search)
     && (activeFilters.status === "All" || student.status === activeFilters.status));
-  const rows = filtered.map((student) => `<tr><td><div class="cell-primary">${avatar(student.name)}<span><strong>${escapeHTML(student.name)}</strong><small>${escapeHTML(student.id)}</small></span></div></td><td>${escapeHTML(student.email)}</td><td>${dateLabel(student.joined)}</td><td>${student.courses.length}</td><td><strong>${student.progress}%</strong></td><td>${statusBadge(student.status)}</td><td><div class="table-actions"><button class="text-button" data-action="student-details" data-id="${student.id}">Profile</button><button class="text-button${student.status === "Active" ? " danger" : ""}" data-action="toggle-student" data-id="${student.id}">${student.status === "Active" ? "Suspend" : "Reactivate"}</button></div></td></tr>`).join("");
+  const rows = filtered.map((student) => `<tr><td><div class="cell-primary">${avatar(student.name)}<span><strong>${escapeHTML(student.name)}</strong><small>${escapeHTML(student.source === "supabase" ? "Supabase account" : student.id)}</small></span></div></td><td>${escapeHTML(student.email)}</td><td>${dateLabel(student.joined)}</td><td>${student.courses.length}</td><td><strong>${student.progress}%</strong></td><td>${statusBadge(student.status)}</td><td><div class="table-actions"><button class="text-button" data-action="student-details" data-id="${escapeHTML(student.id)}">Profile</button>${student.source === "supabase" ? `<span class="muted">Auth-managed</span>` : `<button class="text-button${student.status === "Active" ? " danger" : ""}" data-action="toggle-student" data-id="${escapeHTML(student.id)}">${student.status === "Active" ? "Suspend" : "Reactivate"}</button>`}</div></td></tr>`).join("");
   const toolbar = `<div class="toolbar-left"><div class="search-field"><input type="search" data-filter="search" placeholder="Search students…" value="${escapeHTML(activeFilters.search)}" aria-label="Search students"></div><select class="field-control" data-filter="status" aria-label="Filter student status"><option>All</option><option${activeFilters.status === "Active" ? " selected" : ""}>Active</option><option${activeFilters.status === "Suspended" ? " selected" : ""}>Suspended</option></select></div><div class="toolbar-right"><button class="button button-soft button-small" data-action="export-students">↓ Export CSV</button></div>`;
-  return `${heading("Student management", "Search learner accounts, review course progress and manage account status.", `<span class="button button-soft">${state.students.length} registered learners</span>`)}
-    <div class="summary-cards"><div class="summary-card"><span>Total students</span><strong>${state.students.length}</strong><small>Local sample accounts</small></div><div class="summary-card"><span>Active learners</span><strong>${state.students.filter((student) => student.status === "Active").length}</strong><small>Accounts currently active</small></div><div class="summary-card"><span>Average progress</span><strong>${state.students.length ? Math.round(state.students.reduce((sum, student) => sum + student.progress, 0) / state.students.length) : 0}%</strong><small>Across sample learners</small></div></div>
+  return `${heading("Student management", "Review registered Supabase learners and sample records from the existing finance demo.", `<span class="button button-soft">${state.students.length} records</span>`)}
+    <div class="summary-cards"><div class="summary-card"><span>Total learner records</span><strong>${state.students.length}</strong><small>${state.students.filter((student) => student.source === "supabase").length} Supabase accounts</small></div><div class="summary-card"><span>Active learners</span><strong>${state.students.filter((student) => student.status === "Active").length}</strong><small>Supabase accounts and sample records</small></div><div class="summary-card"><span>Average progress</span><strong>${state.students.length ? Math.round(state.students.reduce((sum, student) => sum + student.progress, 0) / state.students.length) : 0}%</strong><small>Real learner progress is not yet normalized</small></div></div>
     ${tableShell(toolbar, ["Student", "Email", "Joined", "Courses", "Progress", "Status", "Actions"], rows, "No students match these filters.")}`;
 }
 
@@ -980,8 +1043,8 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") sidebar.classList.remove("open");
 });
 
-document.querySelector("#admin-logout").addEventListener("click", () => {
-  localStorage.removeItem(ADMIN_SESSION_KEY);
+document.querySelector("#admin-logout").addEventListener("click", async () => {
+  await supabaseClient.auth.signOut();
   window.location.replace("auth.html?mode=login&admin=1");
 });
 

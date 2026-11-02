@@ -1,19 +1,29 @@
-const AUTH_SESSION_KEY = "skillup-local-session-v1";
-let learnerAuthSession = null;
-try {
-  learnerAuthSession = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || "null");
-} catch {
-  learnerAuthSession = null;
-}
-if (learnerAuthSession?.role === "referral") {
-  learnerAuthSession.role = "learner";
-  localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(learnerAuthSession));
-}
-if (!learnerAuthSession?.email || learnerAuthSession.role !== "learner") {
+(async () => {
+const supabaseClient = window.skillUpSupabase;
+if (!supabaseClient) {
   window.location.replace("auth.html?mode=login");
-} else {
+  return;
+}
+const { data: { session } } = await supabaseClient.auth.getSession();
+if (!session) {
+  window.location.replace("auth.html?mode=login");
+  return;
+}
+const { data: learnerProfile, error: profileError } = await supabaseClient
+  .from("profiles")
+  .select("role,full_name,email")
+  .eq("id", session.user.id)
+  .maybeSingle();
+if (profileError || !learnerProfile || learnerProfile.role === "admin") {
+  window.location.replace(learnerProfile?.role === "admin" ? "admin.html" : "auth.html?mode=login");
+  return;
+}
+const learnerAuthSession = {
+  id: session.user.id,
+  email: session.user.email,
+  name: learnerProfile.full_name || session.user.user_metadata?.full_name || session.user.email.split("@")[0]
+};
 const STUDENT_STORAGE_KEY = `skillup-learner-prototype-v1:${learnerAuthSession.email}`;
-const ADMIN_STORAGE_KEY = "skillup-admin-prototype-v1";
 const learnerContent = document.querySelector("#learner-content");
 const learnerSidebar = document.querySelector("#learner-sidebar");
 const learnerModal = document.querySelector("#learner-modal-layer");
@@ -99,73 +109,81 @@ function escapeLearner(value) {
   })[character]);
 }
 
-function readLearnerState() {
-  try {
-    const saved = localStorage.getItem(STUDENT_STORAGE_KEY);
-    if (!saved) {
-      const fresh = initialLearnerState();
-      fresh.profile = {
-        ...fresh.profile,
-        name: learnerAuthSession.name || learnerAuthSession.email.split("@")[0],
-        email: learnerAuthSession.email,
-        role: "Student / learner"
-      };
-      fresh.purchases = [];
-      fresh.progress = {};
-      fresh.activities = [];
-      fresh.sessions = [];
-      fresh.questions = [];
-      fresh.quizzes = {};
-      fresh.referral = { active: false, code: "", registrations: 0, conversions: 0, commission: 0, withdrawals: [], history: [] };
-      try {
-        const admin = JSON.parse(localStorage.getItem(ADMIN_STORAGE_KEY) || "null");
-        if (Array.isArray(admin?.courses)) {
-          const adminCourses = admin.courses.filter((course) => course.status === "Published");
-          fresh.courses = adminCourses.map((course) => {
-            const fallback = demoCourses.find((item) => item.id === course.id) || {};
-            return { ...fallback, ...course, title: course.title || fallback.title, thumbnail: course.thumbnail || fallback.thumbnail, duration: fallback.duration || "Self-paced", level: fallback.level || "All levels" };
-          });
-          if (!admin.courses.some((course) => course.id === "c-cybersecurity")) {
-            fresh.courses.push(demoCourses.find((course) => course.id === "c-cybersecurity"));
-          }
-        }
-      } catch {
-        notify("Admin course data is unavailable; using the learner sample catalogue.", "error");
-      }
-      localStorage.setItem(STUDENT_STORAGE_KEY, JSON.stringify(fresh));
-      return fresh;
-    }
-    const parsed = JSON.parse(saved);
-    const defaults = initialLearnerState();
-    return {
-      ...Object.fromEntries(Object.keys(defaults).map((key) => [key, parsed[key] ?? defaults[key]])),
-      courses: [...(parsed.courses || []), ...defaults.courses.filter((course) => !(parsed.courses || []).some((savedCourse) => savedCourse.id === course.id))],
-      profile: { ...defaults.profile, ...parsed.profile, email: learnerAuthSession.email, role: "Student / learner" }
-    };
-  } catch {
-    window.setTimeout(() => notify("Could not load your saved learner data from this browser. Check local storage permissions.", "error"), 0);
-    return { ...initialLearnerState(), profile: { ...initialLearnerState().profile, name: learnerAuthSession.name || learnerAuthSession.email.split("@")[0], email: learnerAuthSession.email, role: "Student / learner" }, purchases: [], progress: {}, activities: [], sessions: [], questions: [], quizzes: {} };
+async function readLearnerState() {
+  const [
+    { data: remoteWorkspace, error: workspaceError },
+    { data: remoteCourses, error: coursesError },
+    { data: remoteEnrollments, error: enrollmentError }
+  ] = await Promise.all([
+    supabaseClient.from("learner_workspaces").select("data").eq("user_id", learnerAuthSession.id).maybeSingle(),
+    supabaseClient.from("courses").select("data").eq("status", "Published"),
+    supabaseClient.from("enrollments").select("course_id,status,purchased_at,amount,receipt").eq("user_id", learnerAuthSession.id).eq("status", "Successful")
+  ]);
+  if (workspaceError) throw workspaceError;
+  if (coursesError) throw coursesError;
+  if (enrollmentError) throw enrollmentError;
+
+  const defaults = initialLearnerState();
+  let legacyData = null;
+  if (!remoteWorkspace) {
+    try { legacyData = JSON.parse(localStorage.getItem(STUDENT_STORAGE_KEY) || "null"); } catch { legacyData = null; }
   }
+  const source = remoteWorkspace?.data || legacyData || defaults;
+  const loaded = Object.fromEntries(Object.keys(defaults).map((key) => [key, source[key] ?? defaults[key]]));
+  if (!remoteWorkspace && !legacyData) {
+    loaded.purchases = [];
+    loaded.progress = {};
+    loaded.activities = [];
+    loaded.sessions = [];
+    loaded.questions = [];
+    loaded.quizzes = {};
+    loaded.referral = { active: false, code: "", registrations: 0, conversions: 0, commission: 0, withdrawals: [], history: [] };
+  }
+  loaded.courses = remoteCourses.length ? remoteCourses.map((course) => course.data) : (legacyData?.courses || defaults.courses);
+  loaded.purchases = remoteEnrollments.map((enrollment) => ({
+    courseId: enrollment.course_id,
+    purchasedAt: enrollment.purchased_at,
+    amount: Number(enrollment.amount),
+    status: enrollment.status,
+    receipt: enrollment.receipt
+  }));
+  loaded.profile = {
+    ...defaults.profile,
+    ...loaded.profile,
+    name: loaded.profile?.name || learnerAuthSession.name,
+    email: learnerAuthSession.email,
+    role: "Student / learner"
+  };
+
+  if (!remoteWorkspace) {
+    const { error } = await supabaseClient.from("learner_workspaces").upsert({ user_id: learnerAuthSession.id, data: loaded });
+    if (error) throw error;
+  }
+  return loaded;
 }
 
-let learnerState = readLearnerState();
+let learnerState;
+try {
+  learnerState = await readLearnerState();
+} catch (error) {
+  document.querySelector("#learner-content").innerHTML = `<section class="learner-panel"><div class="learner-panel-body"><h2>Could not connect to Supabase</h2><p>${escapeLearner(error.message || "Check the database schema and project configuration, then reload.")}</p></div></section>`;
+  return;
+}
 let activeLearnerView = "dashboard";
 let courseSearch = "";
 let courseCategory = "All";
 let certificateFocus = "";
 let previousModalFocus = null;
 
+let learnerPersistQueue = Promise.resolve();
 function saveLearnerState(mutator, message) {
-  const before = JSON.stringify(learnerState);
   mutator();
-  try {
-    localStorage.setItem(STUDENT_STORAGE_KEY, JSON.stringify(learnerState));
-  } catch {
-    learnerState = JSON.parse(before);
-    renderLearnerView();
-    notify("Could not save your changes. Browser storage may be full.", "error");
-    return false;
-  }
+  const snapshot = JSON.parse(JSON.stringify(learnerState));
+  delete snapshot.purchases;
+  learnerPersistQueue = learnerPersistQueue.then(async () => {
+    const { error } = await supabaseClient.from("learner_workspaces").upsert({ user_id: learnerAuthSession.id, data: snapshot });
+    if (error) throw error;
+  }).catch((error) => notify(`Supabase could not save this change: ${error.message || "Database request failed."}`, "error"));
   renderLearnerView();
   if (message) notify(message);
   return true;
@@ -255,7 +273,7 @@ function renderDashboard() {
   const courseRows = [...active].sort((a, b) => (getProgress(b.id).lastLesson || 0) - (getProgress(a.id).lastLesson || 0)).slice(0, 3).map((course) => `<div class="continue-item"><div class="continue-image"><img src="${escapeLearner(course.thumbnail)}" alt="" loading="lazy"></div><div class="continue-copy"><strong>${escapeLearner(course.title)}</strong><small>By ${escapeLearner(course.instructor)} · ${progressPercent(course.id)}% complete</small><div class="progress-track"><span style="width:${progressPercent(course.id)}%"></span></div></div><button class="learner-button learner-button-soft continue-button" data-action="open-learning-course" data-id="${escapeLearner(course.id)}">Access course</button></div>`).join("");
   const announcements = learnerState.announcements.slice(0, 2).map((item) => `<div class="announcement-row"><span class="activity-icon ${escapeLearner(item.tone)}">✳</span><div><strong>${escapeLearner(item.title)}</strong><p>${escapeLearner(item.body)}</p></div></div>`).join("");
   return `${pageHeading("Your learning overview", `Welcome back, ${escapeLearner(learnerState.profile.name.split(" ")[0])}. Every step counts—keep building your next chapter.`, button("Explore courses ↗", "navigate-catalog", "", "primary"))}
-    ${notice("<strong>Local account.</strong> Your profile, course progress, and purchases are stored in this browser. Payments are simulated; do not use sensitive personal information in this prototype.")}
+    ${notice("<strong>Supabase account.</strong> Your profile and learning workspace sync to your account. Purchases and payment records are still demonstrations; no payment is collected.")}
     <section class="welcome-banner"><div class="welcome-copy"><p class="learner-kicker">YOU'RE RIGHT WHERE YOU NEED TO BE</p><h2>Keep going, <span>${escapeLearner(learnerState.profile.name.split(" ")[0])}.</span></h2><p>You have ${active.length} active course${active.length === 1 ? "" : "s"} and an average learning progress of ${overall}%. A little progress adds up.</p></div><div class="welcome-mark" aria-hidden="true">✳</div></section>
     <div class="learner-stats">
       <article class="learner-stat"><div class="learner-stat-top"><span>Purchased courses</span><span class="learner-stat-icon">▤</span></div><strong>${allOwned.length}</strong><small>Access is limited to your purchases</small></article>
@@ -281,7 +299,7 @@ function renderCatalog() {
   const visible = available.filter((course) => (course.status === "Published" || ownsCourse(course.id))
     && (courseCategory === "All" || course.category === courseCategory)
     && (`${course.title} ${course.description} ${course.instructor} ${course.category}`.toLowerCase().includes(courseSearch.toLowerCase())));
-  return `${pageHeading("Explore courses", "Find a skill that fits your goals. View the curriculum, meet the instructor, and choose where to begin.", button(`View basket · ${learnerState.cart.length}`, "open-cart", "", "primary"))}
+  return `${pageHeading("Explore courses", "Find a skill that fits your goals. View the curriculum, meet the instructor, and choose where to begin.")}
     ${notice("Course syllabi are open to all learners. Enrollment unlocks lesson progress, learning materials, assignments and quizzes. Demo checkout does not charge a payment method.")}
     <div class="catalog-toolbar"><div class="catalog-filters">${categories.map((category) => `<button class="catalog-filter${courseCategory === category ? " active" : ""}" data-category="${escapeLearner(category)}">${escapeLearner(category)}</button>`).join("")}</div><input class="learner-search" type="search" data-course-search placeholder="Search courses, skills or instructors…" value="${escapeLearner(courseSearch)}" aria-label="Search courses"></div>
     <div class="catalog-grid">${visible.map(catalogCard).join("") || empty("No courses found.", "Try another search or category.")}</div>`;
@@ -301,7 +319,7 @@ function renderLearning() {
     return `<article class="learning-card"><div class="learning-card-image"><img src="${escapeLearner(course.thumbnail)}" alt="" loading="lazy"><span>${complete ? "COURSE COMPLETED" : "YOUR NEXT LESSON IS READY"}</span></div><div class="learning-card-body"><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.instructor)} · ${escapeLearner(course.duration || "Self-paced")} · Purchased ${learnerDate(learnerState.purchases.find((purchase) => purchase.courseId === course.id)?.purchasedAt)}</p><div class="learning-progress-header"><span>${complete ? "Completed" : "Course progress"}</span><strong>${progress}%</strong></div><div class="progress-track"><span style="width:${progress}%"></span></div><div class="learning-footer">${complete ? button("Course outline", "open-learning-course", course.id) : `<span class="muted">Last lesson: ${escapeLearner((course.modules || "").split("\n")[getProgress(course.id).lastLesson] || "Start learning")}</span>`}${button("Access course", "open-learning-course", course.id, "primary")}</div></div></article>`;
   }).join("");
   return `${pageHeading("My learning", "Your learning area is limited to courses with a successful purchase in your account.", button("Find another course", "navigate-catalog", "", "soft"))}
-    ${notice("<strong>Purchase-gated access.</strong> Courses you have not successfully purchased do not appear in your learning library. Demo purchase records are stored locally and do not verify real payment.")}
+    ${notice("<strong>Purchase-gated access.</strong> Courses you have not successfully purchased do not appear in your learning library. Sample purchase records are stored in the database but do not verify real payment.")}
     <div class="learner-stats"><article class="learner-stat"><div class="learner-stat-top"><span>Purchased courses</span><span class="learner-stat-icon">▤</span></div><strong>${purchased.length}</strong><small>Your personal learning library</small></article><article class="learner-stat"><div class="learner-stat-top"><span>In progress</span><span class="learner-stat-icon coral">▷</span></div><strong>${activeCourses().length}</strong><small>Pick up where you left off</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Completed</span><span class="learner-stat-icon violet">✦</span></div><strong>${completedCourses().length}</strong><small>Celebrate your progress</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Lessons completed</span><span class="learner-stat-icon amber">✓</span></div><strong>${Object.values(learnerState.progress).reduce((sum, progress) => sum + (progress.completedLessons || []).length, 0)}</strong><small>Keep up the great work</small></article></div>
     <div class="learning-layout"><div class="lesson-list">${rows || `<section class="learner-panel">${empty("Your course library is empty.", "Browse the catalogue and complete the demo checkout to unlock your first course.")}</section>`}</div><div>${panel("Course resources", "Helpful links for your studies", `<div class="resource-list">${learnerState.resources.slice(0, 3).map((resource) => `<div class="resource-row"><span class="activity-icon violet">▧</span><div class="activity-copy"><strong>${escapeLearner(resource.title)}</strong><small>${escapeLearner(resource.category)}</small></div><a class="learner-link-button" href="${escapeLearner(resource.link)}" target="_blank" rel="noopener noreferrer">Open ↗</a></div>`).join("") || empty("No resources added.")}</div>`)}</div></div>`;
 }
@@ -439,11 +457,11 @@ function renderReferrals() {
 function renderProfile() {
   const profile = learnerState.profile;
   const purchases = learnerState.purchases.filter((purchase) => purchase.status === "Successful").map((purchase) => `<div class="activity-row"><span class="activity-icon">▤</span><div class="activity-copy"><strong>${escapeLearner(getCourse(purchase.courseId)?.title || "Course")}</strong><small>${learnerDate(purchase.purchasedAt)} · ${escapeLearner(purchase.receipt)}</small></div><strong>${learnerMoney(purchase.amount)}</strong></div>`).join("");
-  return `${pageHeading("Profile & settings", "Manage your learner profile, local notification preference and course purchase history.", button("Sign out", "sign-out", "", "soft"))}
-    ${notice("Profile details are stored only in this browser. The sign-in email cannot be changed here, and local account passwords cannot be reset.")}
+  return `${pageHeading("Profile & settings", "Manage your learner profile, notification preference and course purchase history.", button("Sign out", "sign-out", "", "soft"))}
+    ${notice("Profile details are stored in Supabase. The sign-in email cannot be changed here; manage password resets through Supabase Auth.")}
     <div class="account-profile"><aside class="profile-card"><div class="profile-photo">${profile.avatar ? `<img src="${escapeLearner(profile.avatar)}" alt="Profile photo">` : escapeLearner(profile.name.split(/\s+/).map((item) => item[0] || "").slice(0, 2).join("").toUpperCase())}</div><h2>${escapeLearner(profile.name)}</h2><p>${escapeLearner(profile.email)}</p>${badge(profile.role)}<div><label class="learner-button learner-button-soft" for="avatar-upload">Upload profile photo</label><input id="avatar-upload" type="file" accept="image/*" hidden></div><div class="profile-save">${button("Activate referral account", "navigate-referrals", "", "soft")}</div></aside>
     <section class="profile-edit-card"><h2>Personal information</h2><p>Update your profile and preferences for this device.</p><form data-learner-form="profile"><div class="profile-edit-grid"><div class="learner-field"><label for="profile-name">Full name</label><input id="profile-name" name="name" required minlength="2" value="${escapeLearner(profile.name)}"></div><div class="learner-field"><label for="profile-email">Sign-in email</label><input id="profile-email" name="email" readonly type="email" value="${escapeLearner(profile.email)}"></div><div class="learner-field"><label for="profile-location">Location</label><input id="profile-location" name="location" value="${escapeLearner(profile.location || "")}" placeholder="City, country"></div><div class="learner-field"><label for="profile-role">Account type</label><input id="profile-role" value="${escapeLearner(profile.role)}" readonly></div><div class="learner-field full"><label for="profile-bio">About you</label><textarea id="profile-bio" name="bio" maxlength="240">${escapeLearner(profile.bio || "")}</textarea></div></div><div class="security-row"><div><strong>Email notifications</strong><small>Receive learning and mentorship updates on this profile</small></div><input type="checkbox" name="notifications" ${profile.notifications ? "checked" : ""} aria-label="Email notifications"></div><div class="modal-actions"><button class="learner-button learner-button-primary" type="submit">Save profile</button></div></form>
-    <div class="security-row"><div><strong>Password & account security</strong><small>Passwords are stored as salted hashes in local browser storage, but this prototype is not secure authentication.</small></div>${button("Password help", "password-help", "", "soft")}</div>
+    <div class="security-row"><div><strong>Password & account security</strong><small>Supabase Auth manages your password; this app never stores it in the database.</small></div>${button("Password help", "password-help", "", "soft")}</div>
     </section></div>
     <section class="learner-panel" style="margin-top:14px"><header class="learner-panel-header"><div><h2>Purchase history</h2><p>Course orders in your local demo account</p></div><button class="learner-link-button" data-action="export-purchases">Download CSV ↓</button></header><div class="learner-panel-body"><div class="activity-list">${purchases || empty("No course purchases recorded.")}</div></div></section>`;
 }
@@ -523,32 +541,12 @@ function addToCart(courseId) {
 }
 
 function checkoutModal() {
-  const courses = learnerState.cart.map(getCourse).filter((course) => course && !ownsCourse(course.id));
-  if (!courses.length) {
-    openLearnerModal("Your basket is empty", `<div class="locked-state"><span>▤</span><h3>Find a course to get started</h3><p>Choose a skill from the catalogue and add it to your basket.</p><button class="learner-button learner-button-primary" data-action="navigate-catalog">Explore courses</button></div>`);
-    return;
-  }
-  const rows = courses.map((course) => `<div class="modal-course-row"><span>${escapeLearner(course.title)}</span><strong>${learnerMoney(course.price)}</strong><button class="learner-link-button" data-action="remove-cart" data-id="${escapeLearner(course.id)}">Remove</button></div>`).join("");
-  const total = courses.reduce((sum, course) => sum + (Number(course.price) || 0), 0);
-  openLearnerModal("Review your demo checkout", `<div class="learner-notice"><span>ⓘ</span><div><strong>Demo checkout only.</strong> Pressing confirm adds local sample purchase records. No payment is collected and no gateway is contacted.</div></div><div>${rows}<div class="total-row"><span>Demo total</span><strong>${learnerMoney(total)}</strong></div></div><div class="modal-actions"><button class="learner-button learner-button-soft" data-close-learner-modal>Keep exploring</button><button class="learner-button learner-button-lime" data-action="complete-demo-checkout">Confirm demo purchase</button></div>`);
+  openLearnerModal("Course enrollment", `<div class="learner-notice"><span>ⓘ</span><div>Course access is granted from verified enrollment records. Online payment is not configured yet, so checkout is unavailable.</div></div><div class="modal-actions"><button class="learner-button learner-button-primary" data-close-learner-modal>Close</button></div>`);
 }
 
 function completeDemoCheckout() {
-  const selected = learnerState.cart.map(getCourse).filter((course) => course && course.status === "Published" && !ownsCourse(course.id));
-  if (!selected.length) { notify("No available courses are in your basket.", "error"); closeLearnerModal(); return; }
-  const added = selected.length;
-  const saved = saveLearnerState(() => {
-    selected.forEach((course) => {
-      learnerState.purchases.push({ courseId: course.id, purchasedAt: learnerDay(), amount: Number(course.price) || 0, status: "Successful", receipt: `DEMO-${Date.now().toString(36).toUpperCase()}-${course.id.slice(-3)}` });
-      learnerState.progress[course.id] ||= { completedLessons: [], lastLesson: 0, completed: false, assignment: "", feedback: "" };
-      addActivity("✓", "", "Demo purchase confirmed", course.title);
-    });
-    learnerState.cart = learnerState.cart.filter((id) => !selected.some((course) => course.id === id));
-  }, `${added} course${added === 1 ? "" : "s"} unlocked in your local demo library.`);
-  if (saved) {
-    closeLearnerModal();
-    navigateLearner("learning");
-  }
+  notify("Checkout is disabled until verified payments can create enrollment records.", "error");
+  closeLearnerModal();
 }
 
 function assignmentModal(course) {
@@ -580,7 +578,7 @@ function exportPurchases() {
   notify("Demo purchase history downloaded.");
 }
 
-function handleLearnerAction(action, id, element) {
+async function handleLearnerAction(action, id, element) {
   const course = getCourse(id);
   switch (action) {
     case "navigate-catalog": closeLearnerModal(); navigateLearner("catalog"); break;
@@ -648,10 +646,13 @@ function handleLearnerAction(action, id, element) {
     }
     case "download-certificate": downloadCertificate(id); break;
     case "share-certificate": shareCertificate(id); break;
-    case "password-help": notify("Password changes and resets are not available for local accounts."); break;
+    case "password-help":
+      supabaseClient.auth.resetPasswordForEmail(learnerAuthSession.email, { redirectTo: `${window.location.origin}/auth.html` })
+        .then(({ error }) => error ? notify(`Could not send the reset email: ${error.message}`, "error") : notify("If email delivery is configured, a password reset link is on its way."));
+      break;
     case "export-purchases": exportPurchases(); break;
     case "sign-out":
-      localStorage.removeItem(AUTH_SESSION_KEY);
+      await supabaseClient.auth.signOut();
       window.location.replace("auth.html?mode=login");
       break;
     default: break;
@@ -709,7 +710,7 @@ learnerModal.addEventListener("click", (event) => {
   const actionElement = event.target.closest("[data-action]");
   if (actionElement) handleLearnerAction(actionElement.dataset.action, actionElement.dataset.id, actionElement);
 });
-document.addEventListener("submit", (event) => {
+document.addEventListener("submit", async (event) => {
   const form = event.target.closest("[data-learner-form]");
   if (!form) return;
   event.preventDefault();
@@ -757,13 +758,18 @@ document.addEventListener("submit", (event) => {
   if (kind === "profile") {
     const email = values.email.trim();
     if (!values.name.trim() || values.name.trim().length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { notify("Enter a name and a valid email address.", "error"); return; }
-    saveLearnerState(() => {
+    const saved = saveLearnerState(() => {
       learnerState.profile.name = values.name.trim();
       learnerState.profile.email = email;
       learnerState.profile.location = values.location.trim();
       learnerState.profile.bio = values.bio.trim();
       learnerState.profile.notifications = form.querySelector('[name="notifications"]').checked;
-    }, "Learner profile saved on this device.");
+    }, "Learner profile saved to Supabase.");
+    if (saved) {
+      const { error } = await supabaseClient.from("profiles").update({ full_name: values.name.trim() }).eq("id", learnerAuthSession.id);
+      if (error) notify(`Could not update your Supabase profile name: ${error.message}`, "error");
+      else learnerAuthSession.name = values.name.trim();
+    }
     return;
   }
 });
@@ -796,4 +802,4 @@ if (certificateQuery) {
   if (!found) window.setTimeout(() => notify("This verification code does not match a completed course in the local preview.", "error"), 100);
 }
 renderLearnerView();
-}
+})();
