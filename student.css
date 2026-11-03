@@ -32,11 +32,6 @@ a { color: inherit; text-decoration: none; }
 .learner-nav-item > span { display: grid; width: 19px; place-items: center; color: #99c9b2; font-family: var(--learner-display); font-size: 15px; }
 .learner-nav-item.active > span { color: var(--learner-lime); }
 .learner-sidebar-bottom { margin-top: auto; }
-.learner-storage-note { display: flex; align-items: center; gap: 9px; margin: 0 4px 12px; padding: 11px 9px; border: 1px solid rgba(255,255,255,.1); border-radius: 5px; background: rgba(255,255,255,.035); }
-.storage-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--learner-lime); box-shadow: 0 0 0 4px rgba(201,242,125,.12); }
-.learner-storage-note strong, .learner-storage-note small { display: block; }
-.learner-storage-note strong { font-size: 12px; }
-.learner-storage-note small { margin-top: 3px; color: #8ca49b; font-size: 12px; }
 .learner-public-link { display: flex; align-items: center; gap: 9px; padding: 9px; color: #b6c8c0; font-size: 12px; }
 .learner-public-link span { color: var(--learner-lime); font-size: 15px; }
 .learner-user { display: flex; align-items: center; gap: 9px; padding: 11px 5px 2px; border-top: 1px solid rgba(255,255,255,.12); }
@@ -52,8 +47,6 @@ a { color: inherit; text-decoration: none; }
 .learner-breadcrumb b { color: #c4cfca; font-weight: 400; }
 .learner-breadcrumb strong { color: var(--learner-ink); font-size: 12px; }
 .learner-top-actions { display: flex; align-items: center; gap: 11px; }
-.learner-demo-pill { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid #e3ebdf; border-radius: 3px; background: #f6f9ef; color: #69786d; font-size: 12px; }
-.learner-demo-pill i { width: 6px; height: 6px; border-radius: 50%; background: #a6c85f; }
 .learner-notification-button, .learner-top-avatar, .learner-menu-toggle { position: relative; display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--learner-line); border-radius: 4px; background: white; color: #62726e; cursor: pointer; font-size: 15px; }
 .learner-top-avatar { border: 0; background: var(--learner-lime); color: var(--learner-deep); font-size: 12px; font-weight: 700; }
 .notification-dot { position: absolute; top: 6px; right: 6px; width: 5px; height: 5px; border-radius: 50%; background: var(--learner-coral); }

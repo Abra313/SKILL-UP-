@@ -55,46 +55,17 @@ const demoCourses = [
   { id: "c-cybersecurity", title: "Cybersecurity Fundamentals", category: "Cybersecurity", price: 5000, instructor: "Chika Nwosu", status: "Published", description: "Learn ethical, defensive security practices for protecting accounts, networks and digital information.", modules: "Security foundations and ethics\nThreat modeling and risk management\nIdentity, access and network defense\nSecure software and data protection\nIncident response and recovery\nSecurity awareness capstone", materials: "", requirements: "Complete the core lessons and submit a defensive security plan.", assignments: "Create a security awareness and incident response plan for a small organization.", quizzes: "Security foundations and safe practice", thumbnail: "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80", duration: "6 weeks", level: "Beginner friendly" }
 ];
 const initialLearnerState = () => ({
-  profile: { name: "Amara Okafor", email: "amara.okafor@example.com", role: "Student / learner", avatar: "", location: "Lagos, Nigeria", bio: "Curious builder learning frontend and digital product design.", notifications: true },
-  courses: demoCourses,
-  purchases: [
-    { courseId: "c-fullstack", purchasedAt: learnerDay(-28), amount: 5000, status: "Successful", receipt: "DEMO-REC-401" },
-    { courseId: "c-ux", purchasedAt: learnerDay(-20), amount: 5000, status: "Successful", receipt: "DEMO-REC-402" },
-    { courseId: "c-graphics", purchasedAt: learnerDay(-70), amount: 5000, status: "Successful", receipt: "DEMO-REC-403" }
-  ],
-  progress: {
-    "c-fullstack": { completedLessons: [0, 1], lastLesson: 2, completed: false, assignment: "", feedback: "" },
-    "c-ux": { completedLessons: [0], lastLesson: 1, completed: false, assignment: "", feedback: "" },
-    "c-graphics": { completedLessons: [0, 1, 2, 3], lastLesson: 3, completed: true, assignment: "Social campaign portfolio project", feedback: "Clear typography and a thoughtful color palette. Certificate earned.", certificateId: "SKILLUP-2026-GFX-8041" }
-  },
-  activities: [
-    { icon: "✓", tone: "", title: "Completed Web fundamentals", detail: "Full Stack Development", date: learnerDay(-1) },
-    { icon: "↗", tone: "violet", title: "Mentorship session scheduled", detail: "Frontend portfolio review", date: learnerDay(-2) },
-    { icon: "✦", tone: "amber", title: "Certificate earned", detail: "Graphics Design", date: learnerDay(-7) },
-    { icon: "▤", tone: "coral", title: "Enrolled in UI/UX Design", detail: "Payment confirmed · demo receipt", date: learnerDay(-20) }
-  ],
-  sessions: [
-    { id: "LEARN-MNT-01", title: "Frontend portfolio review", mentor: "Ada Okafor", date: learnerDay(1), time: "14:00", type: "1:1 mentorship", status: "Scheduled", link: "" },
-    { id: "LEARN-MNT-02", title: "Building better AI workflows", mentor: "Ifeanyi Okoro", date: learnerDay(3), time: "16:30", type: "Live training", status: "Scheduled", link: "" }
-  ],
-  questions: [
-    { id: "Q-101", title: "How do I structure reusable components?", courseId: "c-fullstack", date: learnerDay(-2), status: "Answered", answer: "Start with small UI elements and pass data through clear, reusable props." }
-  ],
-  announcements: [
-    { title: "Welcome to your learning space", body: "Explore your courses, book time with a mentor, and keep building your portfolio.", date: learnerDay(-1), tone: "violet" },
-    { title: "New live training session", body: "Join the AI automation Q&A and bring your workflow questions.", date: learnerDay(-2), tone: "amber" }
-  ],
+  profile: { name: "", email: "", role: "Student / learner", avatar: "", location: "", bio: "", notifications: true },
+  courses: [],
+  purchases: [],
+  progress: {},
+  activities: [],
+  sessions: [],
+  questions: [],
+  announcements: [],
   quizzes: {},
-  jobs: [
-    { id: "JOB-501", title: "Junior Frontend Developer", company: "Northstar Digital", type: "Remote role", location: "Remote · Nigeria", verified: true, link: "https://example.com/opportunity" },
-    { id: "JOB-502", title: "Product Design Internship", company: "Open Canvas Studio", type: "Internship", location: "Remote · Africa", verified: true, link: "https://example.com/internship" },
-    { id: "JOB-503", title: "No-code Automation Project", company: "Community listing", type: "Freelance", location: "Remote", verified: false, link: "https://example.com/freelance" }
-  ],
-  resources: [
-    { id: "RES-701", title: "CV template for early-career developers", category: "CV template", link: "https://example.com/cv-template" },
-    { id: "RES-702", title: "Technical interview preparation guide", category: "Interview preparation", link: "https://example.com/interview-guide" },
-    { id: "RES-703", title: "Freelance application checklist", category: "Application guide", link: "https://example.com/freelance-guide" }
-  ],
+  jobs: [],
+  resources: [],
   savedJobs: [],
   referral: { active: false, code: "", registrations: 0, conversions: 0, commission: 0, withdrawals: [], history: [] },
   cart: [],
@@ -113,15 +84,18 @@ async function readLearnerState() {
   const [
     { data: remoteWorkspace, error: workspaceError },
     { data: remoteCourses, error: coursesError },
-    { data: remoteEnrollments, error: enrollmentError }
+    { data: remoteEnrollments, error: enrollmentError },
+    { data: remotePublicContent, error: publicContentError }
   ] = await Promise.all([
     supabaseClient.from("learner_workspaces").select("data").eq("user_id", learnerAuthSession.id).maybeSingle(),
     supabaseClient.from("courses").select("data").eq("status", "Published"),
-    supabaseClient.from("enrollments").select("course_id,status,purchased_at,amount,receipt").eq("user_id", learnerAuthSession.id).eq("status", "Successful")
+    supabaseClient.from("enrollments").select("course_id,status,purchased_at,amount,receipt").eq("user_id", learnerAuthSession.id).eq("status", "Successful"),
+    supabaseClient.from("public_content").select("kind,data").eq("status", "Published").in("kind", ["job", "resource", "announcement"])
   ]);
   if (workspaceError) throw workspaceError;
   if (coursesError) throw coursesError;
   if (enrollmentError) throw enrollmentError;
+  if (publicContentError) throw publicContentError;
 
   const defaults = initialLearnerState();
   let legacyData = null;
@@ -139,7 +113,10 @@ async function readLearnerState() {
     loaded.quizzes = {};
     loaded.referral = { active: false, code: "", registrations: 0, conversions: 0, commission: 0, withdrawals: [], history: [] };
   }
-  loaded.courses = remoteCourses.length ? remoteCourses.map((course) => course.data) : (legacyData?.courses || defaults.courses);
+  loaded.courses = remoteCourses.map((course) => course.data);
+  loaded.jobs = remotePublicContent.filter((item) => item.kind === "job").map((item) => item.data);
+  loaded.resources = remotePublicContent.filter((item) => item.kind === "resource").map((item) => item.data);
+  loaded.announcements = remotePublicContent.filter((item) => item.kind === "announcement").map((item) => item.data);
   loaded.purchases = remoteEnrollments.map((enrollment) => ({
     courseId: enrollment.course_id,
     purchasedAt: enrollment.purchased_at,
@@ -180,6 +157,10 @@ function saveLearnerState(mutator, message) {
   mutator();
   const snapshot = JSON.parse(JSON.stringify(learnerState));
   delete snapshot.purchases;
+  delete snapshot.courses;
+  delete snapshot.jobs;
+  delete snapshot.resources;
+  delete snapshot.announcements;
   learnerPersistQueue = learnerPersistQueue.then(async () => {
     const { error } = await supabaseClient.from("learner_workspaces").upsert({ user_id: learnerAuthSession.id, data: snapshot });
     if (error) throw error;
@@ -273,7 +254,6 @@ function renderDashboard() {
   const courseRows = [...active].sort((a, b) => (getProgress(b.id).lastLesson || 0) - (getProgress(a.id).lastLesson || 0)).slice(0, 3).map((course) => `<div class="continue-item"><div class="continue-image"><img src="${escapeLearner(course.thumbnail)}" alt="" loading="lazy"></div><div class="continue-copy"><strong>${escapeLearner(course.title)}</strong><small>By ${escapeLearner(course.instructor)} · ${progressPercent(course.id)}% complete</small><div class="progress-track"><span style="width:${progressPercent(course.id)}%"></span></div></div><button class="learner-button learner-button-soft continue-button" data-action="open-learning-course" data-id="${escapeLearner(course.id)}">Access course</button></div>`).join("");
   const announcements = learnerState.announcements.slice(0, 2).map((item) => `<div class="announcement-row"><span class="activity-icon ${escapeLearner(item.tone)}">✳</span><div><strong>${escapeLearner(item.title)}</strong><p>${escapeLearner(item.body)}</p></div></div>`).join("");
   return `${pageHeading("Your learning overview", `Welcome back, ${escapeLearner(learnerState.profile.name.split(" ")[0])}. Every step counts—keep building your next chapter.`, button("Explore courses ↗", "navigate-catalog", "", "primary"))}
-    ${notice("<strong>Supabase account.</strong> Your profile and learning workspace sync to your account. Purchases and payment records are still demonstrations; no payment is collected.")}
     <section class="welcome-banner"><div class="welcome-copy"><p class="learner-kicker">YOU'RE RIGHT WHERE YOU NEED TO BE</p><h2>Keep going, <span>${escapeLearner(learnerState.profile.name.split(" ")[0])}.</span></h2><p>You have ${active.length} active course${active.length === 1 ? "" : "s"} and an average learning progress of ${overall}%. A little progress adds up.</p></div><div class="welcome-mark" aria-hidden="true">✳</div></section>
     <div class="learner-stats">
       <article class="learner-stat"><div class="learner-stat-top"><span>Purchased courses</span><span class="learner-stat-icon">▤</span></div><strong>${allOwned.length}</strong><small>Access is limited to your purchases</small></article>
@@ -300,7 +280,6 @@ function renderCatalog() {
     && (courseCategory === "All" || course.category === courseCategory)
     && (`${course.title} ${course.description} ${course.instructor} ${course.category}`.toLowerCase().includes(courseSearch.toLowerCase())));
   return `${pageHeading("Explore courses", "Find a skill that fits your goals. View the curriculum, meet the instructor, and choose where to begin.")}
-    ${notice("Course syllabi are open to all learners. Enrollment unlocks lesson progress, learning materials, assignments and quizzes. Demo checkout does not charge a payment method.")}
     <div class="catalog-toolbar"><div class="catalog-filters">${categories.map((category) => `<button class="catalog-filter${courseCategory === category ? " active" : ""}" data-category="${escapeLearner(category)}">${escapeLearner(category)}</button>`).join("")}</div><input class="learner-search" type="search" data-course-search placeholder="Search courses, skills or instructors…" value="${escapeLearner(courseSearch)}" aria-label="Search courses"></div>
     <div class="catalog-grid">${visible.map(catalogCard).join("") || empty("No courses found.", "Try another search or category.")}</div>`;
 }
@@ -319,7 +298,6 @@ function renderLearning() {
     return `<article class="learning-card"><div class="learning-card-image"><img src="${escapeLearner(course.thumbnail)}" alt="" loading="lazy"><span>${complete ? "COURSE COMPLETED" : "YOUR NEXT LESSON IS READY"}</span></div><div class="learning-card-body"><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.instructor)} · ${escapeLearner(course.duration || "Self-paced")} · Purchased ${learnerDate(learnerState.purchases.find((purchase) => purchase.courseId === course.id)?.purchasedAt)}</p><div class="learning-progress-header"><span>${complete ? "Completed" : "Course progress"}</span><strong>${progress}%</strong></div><div class="progress-track"><span style="width:${progress}%"></span></div><div class="learning-footer">${complete ? button("Course outline", "open-learning-course", course.id) : `<span class="muted">Last lesson: ${escapeLearner((course.modules || "").split("\n")[getProgress(course.id).lastLesson] || "Start learning")}</span>`}${button("Access course", "open-learning-course", course.id, "primary")}</div></div></article>`;
   }).join("");
   return `${pageHeading("My learning", "Your learning area is limited to courses with a successful purchase in your account.", button("Find another course", "navigate-catalog", "", "soft"))}
-    ${notice("<strong>Purchase-gated access.</strong> Courses you have not successfully purchased do not appear in your learning library. Sample purchase records are stored in the database but do not verify real payment.")}
     <div class="learner-stats"><article class="learner-stat"><div class="learner-stat-top"><span>Purchased courses</span><span class="learner-stat-icon">▤</span></div><strong>${purchased.length}</strong><small>Your personal learning library</small></article><article class="learner-stat"><div class="learner-stat-top"><span>In progress</span><span class="learner-stat-icon coral">▷</span></div><strong>${activeCourses().length}</strong><small>Pick up where you left off</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Completed</span><span class="learner-stat-icon violet">✦</span></div><strong>${completedCourses().length}</strong><small>Celebrate your progress</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Lessons completed</span><span class="learner-stat-icon amber">✓</span></div><strong>${Object.values(learnerState.progress).reduce((sum, progress) => sum + (progress.completedLessons || []).length, 0)}</strong><small>Keep up the great work</small></article></div>
     <div class="learning-layout"><div class="lesson-list">${rows || `<section class="learner-panel">${empty("Your course library is empty.", "Browse the catalogue and complete the demo checkout to unlock your first course.")}</section>`}</div><div>${panel("Course resources", "Helpful links for your studies", `<div class="resource-list">${learnerState.resources.slice(0, 3).map((resource) => `<div class="resource-row"><span class="activity-icon violet">▧</span><div class="activity-copy"><strong>${escapeLearner(resource.title)}</strong><small>${escapeLearner(resource.category)}</small></div><a class="learner-link-button" href="${escapeLearner(resource.link)}" target="_blank" rel="noopener noreferrer">Open ↗</a></div>`).join("") || empty("No resources added.")}</div>`)}</div></div>`;
 }
@@ -458,7 +436,6 @@ function renderProfile() {
   const profile = learnerState.profile;
   const purchases = learnerState.purchases.filter((purchase) => purchase.status === "Successful").map((purchase) => `<div class="activity-row"><span class="activity-icon">▤</span><div class="activity-copy"><strong>${escapeLearner(getCourse(purchase.courseId)?.title || "Course")}</strong><small>${learnerDate(purchase.purchasedAt)} · ${escapeLearner(purchase.receipt)}</small></div><strong>${learnerMoney(purchase.amount)}</strong></div>`).join("");
   return `${pageHeading("Profile & settings", "Manage your learner profile, notification preference and course purchase history.", button("Sign out", "sign-out", "", "soft"))}
-    ${notice("Profile details are stored in Supabase. The sign-in email cannot be changed here; manage password resets through Supabase Auth.")}
     <div class="account-profile"><aside class="profile-card"><div class="profile-photo">${profile.avatar ? `<img src="${escapeLearner(profile.avatar)}" alt="Profile photo">` : escapeLearner(profile.name.split(/\s+/).map((item) => item[0] || "").slice(0, 2).join("").toUpperCase())}</div><h2>${escapeLearner(profile.name)}</h2><p>${escapeLearner(profile.email)}</p>${badge(profile.role)}<div><label class="learner-button learner-button-soft" for="avatar-upload">Upload profile photo</label><input id="avatar-upload" type="file" accept="image/*" hidden></div><div class="profile-save">${button("Activate referral account", "navigate-referrals", "", "soft")}</div></aside>
     <section class="profile-edit-card"><h2>Personal information</h2><p>Update your profile and preferences for this device.</p><form data-learner-form="profile"><div class="profile-edit-grid"><div class="learner-field"><label for="profile-name">Full name</label><input id="profile-name" name="name" required minlength="2" value="${escapeLearner(profile.name)}"></div><div class="learner-field"><label for="profile-email">Sign-in email</label><input id="profile-email" name="email" readonly type="email" value="${escapeLearner(profile.email)}"></div><div class="learner-field"><label for="profile-location">Location</label><input id="profile-location" name="location" value="${escapeLearner(profile.location || "")}" placeholder="City, country"></div><div class="learner-field"><label for="profile-role">Account type</label><input id="profile-role" value="${escapeLearner(profile.role)}" readonly></div><div class="learner-field full"><label for="profile-bio">About you</label><textarea id="profile-bio" name="bio" maxlength="240">${escapeLearner(profile.bio || "")}</textarea></div></div><div class="security-row"><div><strong>Email notifications</strong><small>Receive learning and mentorship updates on this profile</small></div><input type="checkbox" name="notifications" ${profile.notifications ? "checked" : ""} aria-label="Email notifications"></div><div class="modal-actions"><button class="learner-button learner-button-primary" type="submit">Save profile</button></div></form>
     <div class="security-row"><div><strong>Password & account security</strong><small>Supabase Auth manages your password; this app never stores it in the database.</small></div>${button("Password help", "password-help", "", "soft")}</div>

@@ -36,6 +36,14 @@ create table if not exists public.admin_workspaces (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.public_content (
+  id text primary key,
+  kind text not null check (kind in ('homepage', 'faq', 'job', 'resource', 'testimonial', 'announcement')),
+  status text not null default 'Draft' check (status in ('Published', 'Draft', 'Archived')),
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
 create or replace function public.is_admin()
 returns boolean
 language sql
@@ -60,12 +68,15 @@ grant insert, update, delete on public.courses to authenticated;
 grant select, insert, update, delete on public.learner_workspaces to authenticated;
 grant select, insert, update, delete on public.enrollments to authenticated;
 grant select, insert, update, delete on public.admin_workspaces to authenticated;
+grant select on public.public_content to anon, authenticated;
+grant insert, update, delete on public.public_content to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.courses enable row level security;
 alter table public.learner_workspaces enable row level security;
 alter table public.enrollments enable row level security;
 alter table public.admin_workspaces enable row level security;
+alter table public.public_content enable row level security;
 
 drop policy if exists "profiles_read_self_or_admin" on public.profiles;
 create policy "profiles_read_self_or_admin" on public.profiles
@@ -118,6 +129,17 @@ create policy "enrollments_admin_write" on public.enrollments
 
 drop policy if exists "admin_workspace_admin_only" on public.admin_workspaces;
 create policy "admin_workspace_admin_only" on public.admin_workspaces
+  for all to authenticated
+  using ((select public.is_admin()))
+  with check ((select public.is_admin()));
+
+drop policy if exists "published_content_read_public" on public.public_content;
+create policy "published_content_read_public" on public.public_content
+  for select to anon, authenticated
+  using (status = 'Published' or (select public.is_admin()));
+
+drop policy if exists "published_content_admin_write" on public.public_content;
+create policy "published_content_admin_write" on public.public_content
   for all to authenticated
   using ((select public.is_admin()))
   with check ((select public.is_admin()));

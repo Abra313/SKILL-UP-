@@ -132,6 +132,7 @@ const initialState = () => ({
     { id: "TST-02", name: "Kemi B.", quote: "Having a clear learning path made it easier to keep moving forward.", role: "Digital skills learner", status: "Draft" }
   ],
   campaigns: [],
+  announcements: [],
   siteContent: { headline: "Learn digital skills. Get mentored. Build your career.", announcement: "", bannerUrl: "", contactEmail: "hello@skill-up.ng", privacyPolicy: "", terms: "" },
   activity: [
     { id: "ACT-01", message: "Course published: UI/UX Design", by: "Site Admin", date: day(0) },
@@ -148,22 +149,38 @@ function escapeHTML(value) {
   })[character]);
 }
 
+function serializePublicContent(data) {
+  return [
+    { id: "homepage", kind: "homepage", status: "Published", data: data.siteContent },
+    ...["faqs", "jobs", "resources", "testimonials", "announcements"].flatMap((key) => {
+      const kind = { faqs: "faq", jobs: "job", resources: "resource", testimonials: "testimonial", announcements: "announcement" }[key];
+      return (data[key] || []).map((item) => ({ id: `${kind}:${item.id}`, kind, status: item.status || "Draft", data: item }));
+    })
+  ];
+}
+
 async function readData() {
   const [
     { data: remoteWorkspace, error: workspaceError },
     { data: remoteCourses, error: coursesError },
     { data: remoteProfiles, error: profilesError },
-    { data: remoteEnrollments, error: enrollmentsError }
+    { data: remoteEnrollments, error: enrollmentsError },
+    { data: remoteLearnerWorkspaces, error: learnerWorkspacesError },
+    { data: remoteContent, error: contentError }
   ] = await Promise.all([
     supabaseClient.from("admin_workspaces").select("data").eq("id", WORKSPACE_ID).maybeSingle(),
     supabaseClient.from("courses").select("id,status,data"),
     supabaseClient.from("profiles").select("id,email,full_name,role,created_at"),
-    supabaseClient.from("enrollments").select("user_id,course_id")
+    supabaseClient.from("enrollments").select("user_id,course_id,status,purchased_at,amount,receipt"),
+    supabaseClient.from("learner_workspaces").select("user_id,data"),
+    supabaseClient.from("public_content").select("id,kind,status,data")
   ]);
   if (workspaceError) throw workspaceError;
   if (coursesError) throw coursesError;
   if (profilesError) throw profilesError;
   if (enrollmentsError) throw enrollmentsError;
+  if (learnerWorkspacesError) throw learnerWorkspacesError;
+  if (contentError) throw contentError;
 
   let legacyData = null;
   if (!remoteWorkspace) {
@@ -172,16 +189,18 @@ async function readData() {
   const defaults = initialState();
   const source = remoteWorkspace?.data || legacyData || defaults;
   const loaded = Object.fromEntries(Object.keys(defaults).map((key) => [key, source[key] ?? defaults[key]]));
-  loaded.courses = remoteCourses.length ? remoteCourses.map((course) => ({ ...course.data, status: course.status })) : loaded.courses;
-  const sampleStudents = loaded.students.filter((student) => !student.source);
+  if (!remoteWorkspace && !legacyData) {
+    ["students", "opportunityInterests", "payments", "referrals", "withdrawals", "sessions", "reviews", "jobs", "resources", "faqs", "admins", "testimonials", "campaigns", "announcements", "activity", "audit"].forEach((key) => { loaded[key] = []; });
+    loaded.categories = [];
+  }
+  loaded.courses = remoteCourses.map((course) => ({ ...course.data, status: course.status }));
   const enrollmentsByUser = new Map();
   remoteEnrollments.forEach((enrollment) => {
     const courseIds = enrollmentsByUser.get(enrollment.user_id) || [];
     courseIds.push(enrollment.course_id);
     enrollmentsByUser.set(enrollment.user_id, courseIds);
   });
-  loaded.students = [
-    ...remoteProfiles.filter((profile) => profile.role !== "admin").map((profile) => ({
+  loaded.students = remoteProfiles.filter((profile) => profile.role === "learner").map((profile) => ({
       id: profile.id,
       name: profile.full_name || profile.email,
       email: profile.email,
@@ -190,16 +209,116 @@ async function readData() {
       courses: enrollmentsByUser.get(profile.id) || [],
       progress: 0,
       source: "supabase"
-    })),
-    ...sampleStudents
-  ];
+    }));
+  loaded.payments = remoteEnrollments.map((enrollment) => ({
+    id: enrollment.receipt || `${enrollment.user_id}:${enrollment.course_id}`,
+    userId: enrollment.user_id,
+    studentId: enrollment.user_id,
+    courseId: enrollment.course_id,
+    amount: Number(enrollment.amount),
+    fee: 0,
+    status: enrollment.status,
+    date: enrollment.purchased_at,
+    method: "Enrollment record"
+  }));
+  loaded.admins = remoteProfiles.filter((profile) => profile.role === "admin").map((profile) => ({
+    id: profile.id,
+    name: profile.full_name || profile.email,
+    email: profile.email,
+    role: "Administrator",
+    status: "Active",
+    source: "supabase"
+  }));
+  if (!remoteContent.length) {
+    const seedContent = serializePublicContent(loaded);
+    if (seedContent.length) {
+      const { error } = await supabaseClient.from("public_content").upsert(seedContent);
+      if (error) throw error;
+      remoteContent.push(...seedContent);
+    }
+  }
+  const contentByKind = (kind) => remoteContent.filter((item) => item.kind === kind).map((item) => item.data);
+  loaded.siteContent = contentByKind("homepage")[0] || loaded.siteContent;
+  loaded.faqs = contentByKind("faq");
+  loaded.jobs = contentByKind("job");
+  loaded.resources = contentByKind("resource");
+  loaded.testimonials = contentByKind("testimonial");
+  loaded.announcements = contentByKind("announcement");
+  const profilesById = new Map(remoteProfiles.map((profile) => [profile.id, profile]));
+  const workspaceEntries = remoteLearnerWorkspaces.map((entry) => ({
+    userId: entry.user_id,
+    profile: profilesById.get(entry.user_id),
+    data: entry.data || {}
+  }));
+  const storedWithdrawals = new Map(loaded.withdrawals.map((request) => [request.id, request]));
+  const learnerSessions = workspaceEntries.flatMap(({ userId, profile, data }) => (data.sessions || []).map((session) => ({
+    ...session,
+    id: `${userId}:${session.id}`,
+    userId,
+    sourceSessionId: session.id,
+    student: session.student || profile?.full_name || profile?.email || "Learner",
+    source: "learner"
+  })));
+  const learnerQuestions = workspaceEntries.flatMap(({ userId, profile, data }) => (data.questions || []).map((question) => ({
+    id: `question:${question.id}`,
+    userId,
+    questionId: question.id,
+    type: "Question",
+    title: question.title,
+    student: profile?.full_name || profile?.email || "Learner",
+    course: loaded.courses.find((course) => course.id === question.courseId)?.title || "Course",
+    submitted: question.date,
+    status: question.answer ? "Responded" : question.status,
+    feedback: question.answer || "",
+    source: "learner"
+  })));
+  const learnerAssignments = workspaceEntries.flatMap(({ userId, profile, data }) => Object.entries(data.progress || {})
+    .filter(([, progress]) => progress.assignment)
+    .map(([courseId, progress]) => ({
+      id: `assignment:${userId}:${courseId}`,
+      userId,
+      courseId,
+      type: "Assignment",
+      title: progress.assignment,
+      student: profile?.full_name || profile?.email || "Learner",
+      course: loaded.courses.find((course) => course.id === courseId)?.title || "Course",
+      submitted: progress.assignmentDate || "",
+      status: progress.feedback ? "Reviewed" : "Pending review",
+      feedback: progress.feedback || "",
+      source: "learner"
+    })));
+  const learnerReferrals = workspaceEntries.flatMap(({ profile, data }) => {
+    const referral = data.referral;
+    if (!profile || !referral?.active) return [];
+    const stored = loaded.referrals.find((item) => item.email === profile.email || item.id === profile.id) || {};
+    return [{
+      id: profile.id,
+      name: profile.full_name || profile.email,
+      email: profile.email,
+      code: referral.code || "",
+      referrals: Number(referral.registrations) || 0,
+      conversions: Number(referral.conversions) || 0,
+      commission: Number(referral.commission) || 0,
+      status: stored.status || "Active",
+      source: "learner"
+    }];
+  });
+  const learnerWithdrawals = workspaceEntries.flatMap(({ profile, data }) => (data.referral?.withdrawals || []).map((request) => ({
+    ...request,
+    id: request.id,
+    partner: profile?.full_name || profile?.email || "Learner",
+    requested: request.date,
+    account: request.method,
+    ...(storedWithdrawals.get(request.id) || {}),
+    source: "learner"
+  })));
+  loaded.sessions = [...loaded.sessions.filter((session) => session.source !== "learner"), ...learnerSessions];
+  loaded.reviews = [...loaded.reviews.filter((review) => review.source !== "learner"), ...learnerQuestions, ...learnerAssignments];
+  loaded.referrals = [...loaded.referrals.filter((referral) => referral.source !== "learner"), ...learnerReferrals];
+  loaded.withdrawals = [...loaded.withdrawals.filter((request) => request.source !== "learner"), ...learnerWithdrawals];
 
   if (!remoteWorkspace) {
     const { error } = await supabaseClient.from("admin_workspaces").upsert({ id: WORKSPACE_ID, data: loaded });
-    if (error) throw error;
-  }
-  if (!remoteCourses.length && loaded.courses.length) {
-    const { error } = await supabaseClient.from("courses").upsert(loaded.courses.map((course) => ({ id: course.id, status: course.status, data: course })));
     if (error) throw error;
   }
   return loaded;
@@ -226,6 +345,15 @@ function persist() {
     if (workspaceError) throw workspaceError;
     const { error: coursesError } = await supabaseClient.from("courses").upsert(snapshot.courses.map((course) => ({ id: course.id, status: course.status, data: course })));
     if (coursesError) throw coursesError;
+    const publicContent = serializePublicContent(snapshot);
+    const { error: publicContentError } = await supabaseClient.from("public_content").upsert(publicContent);
+    if (publicContentError) throw publicContentError;
+    const publicContentIds = new Set(publicContent.map((item) => item.id));
+    const staleContent = (await supabaseClient.from("public_content").select("id")).data?.filter((item) => !publicContentIds.has(item.id)).map((item) => item.id) || [];
+    if (staleContent.length) {
+      const { error: deleteContentError } = await supabaseClient.from("public_content").delete().in("id", staleContent);
+      if (deleteContentError) throw deleteContentError;
+    }
     const { data: storedCourses, error: storedCoursesError } = await supabaseClient.from("courses").select("id");
     if (storedCoursesError) throw storedCoursesError;
     const activeIds = new Set(snapshot.courses.map((course) => course.id));
@@ -249,6 +377,21 @@ function commit(mutator, message) {
   render();
   if (message) notify(message);
   return true;
+}
+
+async function updateLearnerSession(session, remove = false) {
+  const { data: workspace, error: readError } = await supabaseClient.from("learner_workspaces").select("data").eq("user_id", session.userId).maybeSingle();
+  if (readError) throw readError;
+  if (!workspace) throw new Error("The learner workspace for this session no longer exists.");
+  const learnerData = workspace.data || {};
+  const sessions = learnerData.sessions || [];
+  const sessionIndex = sessions.findIndex((item) => item.id === session.sourceSessionId);
+  if (sessionIndex < 0) throw new Error("The learner session could not be found.");
+  if (remove) sessions.splice(sessionIndex, 1);
+  else sessions[sessionIndex].status = "Completed";
+  learnerData.sessions = sessions;
+  const { error: saveError } = await supabaseClient.from("learner_workspaces").upsert({ user_id: session.userId, data: learnerData });
+  if (saveError) throw saveError;
 }
 
 function notify(message, type = "success") {
@@ -471,14 +614,14 @@ function renderCareers() {
 
 function renderContent() {
   const faqRows = state.faqs.map((faq) => `<article class="faq-content-item"><strong>${escapeHTML(faq.question)}</strong><p>${escapeHTML(faq.answer)}</p><div class="table-actions"><button class="text-button" data-action="edit-faq" data-id="${faq.id}">Edit</button><button class="text-button" data-action="toggle-faq" data-id="${faq.id}">${faq.status === "Published" ? "Unpublish" : "Publish"}</button><button class="text-button danger" data-action="delete-faq" data-id="${faq.id}">Delete</button>${statusBadge(faq.status)}</div></article>`).join("");
-  const recentAnnouncements = state.activity.slice(0, 5).map((item) => `<div class="activity-item"><span class="stat-icon">✉</span><div class="activity-copy"><strong>${escapeHTML(item.message)}</strong><small>${escapeHTML(item.by)} · ${dateLabel(item.date)}</small></div></div>`).join("");
+  const recentAnnouncements = state.announcements.slice(0, 5).map((item) => `<div class="activity-item"><span class="stat-icon">✉</span><div class="activity-copy"><strong>${escapeHTML(item.title)}</strong><small>${dateLabel(item.date)} · ${escapeHTML(item.status)}</small><p>${escapeHTML(item.body)}</p></div></div>`).join("");
   const testimonials = state.testimonials.map((item) => `<article class="faq-content-item"><strong>${escapeHTML(item.name)} · ${escapeHTML(item.role)}</strong><p>“${escapeHTML(item.quote)}”</p><div class="table-actions"><button class="text-button" data-action="edit-testimonial" data-id="${item.id}">Edit</button><button class="text-button" data-action="toggle-testimonial" data-id="${item.id}">${item.status === "Published" ? "Unpublish" : "Publish"}</button><button class="text-button danger" data-action="delete-testimonial" data-id="${item.id}">Delete</button>${statusBadge(item.status)}</div></article>`).join("");
   return `${heading("Website & content", "Update website FAQs and draft platform announcements.", `<button class="button button-primary" data-action="add-faq"><span class="button-icon">＋</span> Add FAQ</button>`)}
-    <div class="inline-note"><span>ⓘ</span><div>FAQ changes are stored locally and will not update the public website until an application backend is connected. Email announcements are drafts only; no messages are sent.</div></div>
+    <div class="inline-note"><span>ⓘ</span><div>Published FAQs and announcements sync to the public website through Supabase. Email delivery is not connected.</div></div>
     <div class="content-grid"><section class="panel"><div class="panel-header"><div><h2>Homepage content</h2><p>Hero, banner and contact information</p></div><button class="button button-soft button-small" data-action="edit-homepage">Edit content</button></div><div class="panel-body"><div class="detail-block"><h3>Hero headline</h3><p>${escapeHTML(state.siteContent.headline)}</p></div><div class="detail-block"><h3>Announcement banner</h3><p>${escapeHTML(state.siteContent.announcement || "No announcement banner.")}</p></div><div class="detail-block"><h3>Promotional banner image</h3><p>${escapeHTML(state.siteContent.bannerUrl || "No promotional banner image.")}</p></div><div class="detail-block"><h3>Contact email</h3><p>${escapeHTML(state.siteContent.contactEmail)}</p></div><div class="detail-block"><h3>Privacy policy & terms</h3><p>${state.siteContent.privacyPolicy || state.siteContent.terms ? "Policy content saved locally." : "No legal page content saved."}</p><div class="table-actions"><button class="text-button" data-action="edit-legal">Edit legal pages</button></div></div></div></section>
     <section class="panel"><div class="panel-header"><div><h2>Frequently asked questions</h2><p>${state.faqs.length} content items</p></div><button class="button button-soft button-small" data-action="add-faq">＋ Add FAQ</button></div><div class="panel-body">${faqRows || `<div class="empty-state">No FAQs have been added.</div>`}</div></section>
     <section class="panel"><div class="panel-header"><div><h2>Testimonials</h2><p>Manage learner stories and publishing status</p></div><button class="button button-soft button-small" data-action="add-testimonial">＋ Add testimonial</button></div><div class="panel-body">${testimonials || `<div class="empty-state">No testimonials have been added.</div>`}</div></section>
-    <section class="panel"><div class="panel-header"><div><h2>Announcements & activity</h2><p>Draft locally; sending is not configured</p></div><button class="button button-soft button-small" data-action="announcement">＋ Draft</button></div><div class="panel-body"><div class="activity-list">${recentAnnouncements || `<div class="empty-state">No announcements drafted.</div>`}</div></div></section></div>`;
+    <section class="panel"><div class="panel-header"><div><h2>Announcements</h2><p>Published notices on the website; no email is sent</p></div><button class="button button-soft button-small" data-action="announcement">＋ Publish</button></div><div class="panel-body"><div class="activity-list">${recentAnnouncements || `<div class="empty-state">No announcements published.</div>`}</div></div></section></div>`;
 }
 
 function renderSettings() {
@@ -630,7 +773,7 @@ function confirmAction(message) {
   return window.confirm(message);
 }
 
-function handleAction(action, id, element) {
+async function handleAction(action, id, element) {
   const course = state.courses.find((item) => item.id === id);
   const student = state.students.find((item) => item.id === id);
   const payment = state.payments.find((item) => item.id === id);
@@ -669,7 +812,11 @@ function handleAction(action, id, element) {
       }
       break;
     case "refund-payment":
-      if (payment && confirmAction(`Mark ${payment.id} as refunded in local demo data? No actual refund will be issued.`)) commit(() => { payment.status = "Refunded"; addAudit(`Demo refund recorded for ${payment.id}`); }, "Payment marked refunded in local records only.");
+      if (payment && confirmAction(`Mark this enrollment as refunded? This revokes course access but does not process a payment refund.`)) {
+        const { error } = await supabaseClient.from("enrollments").update({ status: "Refunded" }).eq("user_id", payment.userId).eq("course_id", payment.courseId);
+        if (error) { notify(`Could not update the enrollment: ${error.message}`, "error"); break; }
+        commit(() => { payment.status = "Refunded"; addAudit(`Enrollment marked refunded: ${payment.id}`); }, "Enrollment status updated. No payment refund was processed.");
+      }
       break;
     case "export-payments":
       exportCsv("skill-up-demo-financial-report.csv", ["Transaction ID", "Student", "Course", "Amount NGN", "Gateway fee NGN", "Method", "Date", "Status"], state.payments.map((item) => [item.id, studentName(item.studentId), courseName(item.courseId), item.amount, item.fee, item.method, item.date, item.status]));
@@ -714,10 +861,20 @@ function handleAction(action, id, element) {
       break;
     }
     case "complete-session":
-      if (session) commit(() => { session.status = "Completed"; addAudit(`Mentorship session completed: ${session.title}`); }, "Session marked completed.");
+      if (session) {
+        try {
+          if (session.source === "learner") await updateLearnerSession(session);
+          commit(() => { session.status = "Completed"; addAudit(`Mentorship session completed: ${session.title}`); }, "Session marked completed.");
+        } catch (error) { notify(`Could not update the session: ${error.message}`, "error"); }
+      }
       break;
     case "delete-session":
-      if (session && confirmAction(`Remove the local session "${session.title}"?`)) commit(() => { state.sessions = state.sessions.filter((item) => item.id !== id); addAudit(`Session removed: ${session.title}`); }, "Session removed.");
+      if (session && confirmAction(`Remove the session "${session.title}"?`)) {
+        try {
+          if (session.source === "learner") await updateLearnerSession(session, true);
+          commit(() => { state.sessions = state.sessions.filter((item) => item.id !== id); addAudit(`Session removed: ${session.title}`); }, "Session removed.");
+        } catch (error) { notify(`Could not remove the session: ${error.message}`, "error"); }
+      }
       break;
     case "add-job": formModal("Add career opportunity", "job", "", jobForm(), "Save opportunity"); break;
     case "edit-job": if (job) formModal("Edit career opportunity", "job", id, jobForm(job)); break;
@@ -850,7 +1007,7 @@ function reviewForm() {
     + field("Submission details", "feedback", "", { type: "textarea", full: true, rows: 4, placeholder: "Optional context. File uploads are not connected." });
 }
 
-function handleFormSubmit(form) {
+async function handleFormSubmit(form) {
   const values = Object.fromEntries(new FormData(form).entries());
   const kind = form.dataset.form;
   const id = form.dataset.id;
@@ -959,6 +1116,25 @@ function handleFormSubmit(form) {
   if (kind === "review-feedback") {
     const review = existing(state.reviews);
     if (!review || !values.feedback.trim()) { notify("Add feedback before saving this review.", "error"); return; }
+    if (review.source === "learner" && review.userId) {
+      const { data: workspace, error: readError } = await supabaseClient.from("learner_workspaces").select("data").eq("user_id", review.userId).maybeSingle();
+      if (readError) { notify(`Could not load the learner submission: ${readError.message}`, "error"); return; }
+      if (!workspace) { notify("The learner workspace for this submission no longer exists.", "error"); return; }
+      const learnerData = workspace.data || {};
+      if (review.type === "Question") {
+        const question = (learnerData.questions || []).find((item) => item.id === review.questionId);
+        if (!question) { notify("The learner question could not be found.", "error"); return; }
+        question.answer = values.feedback.trim();
+        question.status = "Answered";
+      } else {
+        const progress = learnerData.progress?.[review.courseId];
+        if (!progress) { notify("The learner assignment could not be found.", "error"); return; }
+        progress.feedback = values.feedback.trim();
+        progress.feedbackDate = day(0);
+      }
+      const { error: saveError } = await supabaseClient.from("learner_workspaces").upsert({ user_id: review.userId, data: learnerData });
+      if (saveError) { notify(`Could not save feedback to the learner workspace: ${saveError.message}`, "error"); return; }
+    }
     if (commit(() => { review.feedback = values.feedback.trim(); review.status = review.type === "Question" ? "Responded" : "Reviewed"; addAudit(`${review.type} ${review.status.toLowerCase()}: ${review.title}`); }, "Feedback saved in the local review record.")) closeModal();
     return;
   }
@@ -972,7 +1148,7 @@ function handleFormSubmit(form) {
   }
   if (kind === "announcement") {
     if (!values.title.trim() || !values.message.trim()) { notify("Enter an announcement title and message.", "error"); return; }
-    if (commit(() => { state.activity.unshift({ id: `ANN-${Date.now()}`, message: `Announcement draft: ${values.title.trim()} — ${values.message.trim()}`, by: "Site Admin", date: day(0) }); addAudit(`Announcement draft saved: ${values.title.trim()}`); }, "Announcement draft saved locally. No email was sent.")) closeModal();
+    if (commit(() => { state.announcements.unshift({ id: `ANN-${Date.now()}`, title: values.title.trim(), body: values.message.trim(), date: day(0), status: "Published" }); addAudit(`Announcement published: ${values.title.trim()}`); }, "Announcement published to the website. No email was sent.")) closeModal();
     return;
   }
   if (kind === "admin") {

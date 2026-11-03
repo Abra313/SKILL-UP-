@@ -2,6 +2,7 @@
   const grid = document.querySelector(".course-grid");
   const client = window.skillUpSupabase;
   if (!grid || !client) return;
+  grid.innerHTML = '<div class="empty-state" role="status">Loading published courses…</div>';
 
   const escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -9,7 +10,14 @@
   const imageStyles = ["", "image-cyan", "image-violet", "image-coral", "image-amber", "image-lilac", "image-teal", "image-blue"];
 
   client.from("courses").select("data").eq("status", "Published").then(({ data, error }) => {
-    if (error || !data?.length) return;
+    if (error) {
+      grid.innerHTML = '<div class="empty-state" role="status">Courses are temporarily unavailable. Please try again later.</div>';
+      return;
+    }
+    if (!data?.length) {
+      grid.innerHTML = '<div class="empty-state" role="status">No published courses are available yet.</div>';
+      return;
+    }
     grid.innerHTML = data.map(({ data: course }, index) => {
       const image = /^https?:\/\//i.test(course.thumbnail || "")
         ? `<img src="${escapeHTML(course.thumbnail)}" alt="" loading="lazy">`
