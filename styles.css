@@ -133,6 +133,21 @@ h1, h2, h3 { font-family: var(--font-display); }
 .public-announcement { padding: 11px 14px; border-left: 3px solid var(--teal); border-radius: 4px; background: #e8f3ec; color: var(--deep); }
 .public-announcement strong { display: block; font-size: 13px; }
 .public-announcement p { margin: 4px 0 0; color: #60736c; font-size: 12px; line-height: 1.6; }
+.public-content-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.public-resource-grid { margin-top: 20px; }
+.public-content-card { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 8px; padding: 20px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper); }
+.public-content-card h3 { margin: 0; color: var(--deep); font-family: var(--font-display); font-size: 17px; }
+.public-content-card > p:not(.eyebrow) { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.public-content-card .eyebrow { margin: 0; font-size: 10px; }
+.public-content-meta { font-weight: 600; }
+.public-testimonial-card blockquote { margin: 0; color: var(--deep); font-family: var(--font-display); font-size: 17px; line-height: 1.7; }
+.public-testimonial-card figcaption { margin-top: auto; color: var(--muted); font-size: 12px; font-weight: 700; }
+.legal-dialog { width: min(620px, calc(100% - 32px)); max-height: min(80vh, 720px); padding: 28px; border: 1px solid var(--line); border-radius: 6px; color: var(--deep); background: var(--paper); }
+.legal-dialog::backdrop { background: rgba(8, 31, 32, .62); }
+.legal-dialog h2 { margin: 0 42px 18px 0; font-family: var(--font-display); }
+.legal-dialog #legal-dialog-content { max-height: 60vh; overflow: auto; color: var(--muted); font-size: 14px; line-height: 1.8; white-space: pre-wrap; }
+.legal-dialog form { position: absolute; top: 14px; right: 14px; }
+.legal-dialog-close { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 50%; color: var(--deep); background: transparent; font-size: 22px; cursor: pointer; }
 .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 30px; margin-bottom: 42px; }
 .section-heading .eyebrow { margin-bottom: 15px; }
 .section-heading h2 { margin-bottom: 0; }
@@ -379,6 +394,7 @@ h1, h2, h3 { font-family: var(--font-display); }
   .about-photo { height: 400px; }
   .section-heading { align-items: flex-start; }
   .course-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .public-content-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .course-image { height: 180px; }
   .course-content p { min-height: 43px; }
   .mentorship-grid { grid-template-columns: 1fr; gap: 50px; }
@@ -429,6 +445,7 @@ h1, h2, h3 { font-family: var(--font-display); }
   .section-heading { flex-direction: column; gap: 15px; margin-bottom: 29px; }
   .heading-aside { max-width: none; }
   .course-grid { gap: 10px; }
+  .public-content-grid { grid-template-columns: 1fr; }
   .course-image { height: 120px; }
   .course-content { padding: 11px 10px 12px; }
   .course-topline { align-items: flex-start; font-size: 12px; letter-spacing: .35px; }

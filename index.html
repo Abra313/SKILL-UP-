@@ -240,6 +240,16 @@
           </div>
         </div>
       </section>
+      <section class="section public-opportunities-section" id="public-opportunities" hidden aria-live="polite">
+        <div class="container">
+          <div class="section-heading centered-heading">
+            <p class="eyebrow"><span class="eyebrow-dot"></span> Take your next step</p>
+            <h2>Opportunities and <span class="text-accent">career resources.</span></h2>
+          </div>
+          <div class="public-content-grid" id="public-job-list"></div>
+          <div class="public-content-grid public-resource-grid" id="public-resource-list"></div>
+        </div>
+      </section>
 
       <section class="section steps-section" id="how-it-works">
         <div class="container">
@@ -276,6 +286,15 @@
             <article class="feature-item"><span class="feature-icon feature-blue">✦</span><div><h3>Flexible learning</h3><p>Choose the courses that fit your interests and learning goals.</p></div></article>
             <article class="feature-item"><span class="feature-icon feature-green">⌁</span><div><h3>Learn anywhere</h3><p>Access your learning platform on supported devices.</p></div></article>
           </div>
+        </div>
+      </section>
+      <section class="section public-testimonials-section" id="public-testimonials" hidden aria-live="polite">
+        <div class="container">
+          <div class="section-heading centered-heading">
+            <p class="eyebrow"><span class="eyebrow-dot"></span> Learner stories</p>
+            <h2>Progress worth <span class="text-accent">sharing.</span></h2>
+          </div>
+          <div class="public-content-grid" id="public-testimonial-list"></div>
         </div>
       </section>
 
@@ -328,10 +347,15 @@
         </div>
         <div class="footer-links"><h3>Explore</h3><a href="#home">Home</a><a href="#about">About Us</a><a href="#courses">Courses</a><a href="#mentorship">Mentorship</a></div>
         <div class="footer-links"><h3>Keep growing</h3><a href="#careers">Career Support</a><a href="#how-it-works">How it works</a><a href="#contact">Referral Programme</a><a href="#faq">FAQs</a></div>
-        <div class="footer-links"><h3>Say hello</h3><a href="#contact">Contact us</a><a href="mailto:hello@skill-up.ng">hello@skill-up.ng</a><a href="#contact">Privacy policy</a><a href="#contact">Terms and conditions</a></div>
+        <div class="footer-links"><h3>Say hello</h3><a href="#contact">Contact us</a><a href="mailto:hello@skill-up.ng">hello@skill-up.ng</a><a href="#privacy-policy" data-legal="privacyPolicy">Privacy policy</a><a href="#terms" data-legal="terms">Terms and conditions</a></div>
       </div>
       <div class="container footer-bottom"><span>© 2026 SKILL-UP. All rights reserved.</span><span>Made for the next generation of builders <b>✳</b></span></div>
     </footer>
+    <dialog class="legal-dialog" id="legal-dialog" aria-labelledby="legal-dialog-title">
+      <form method="dialog"><button class="legal-dialog-close" aria-label="Close">×</button></form>
+      <h2 id="legal-dialog-title"></h2>
+      <div id="legal-dialog-content"></div>
+    </dialog>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="/supabase-config.js"></script>
     <script src="supabase-client.js"></script>

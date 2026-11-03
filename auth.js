@@ -116,7 +116,8 @@ async function routeAuthenticatedUser(user) {
   if (error) throw new Error(`Could not load your account role. Run supabase/schema.sql first. ${error.message}`);
   if (!profile) throw new Error("Your Supabase profile is missing. Run supabase/schema.sql and sign in again.");
   if (profile.role === "admin") window.location.assign("admin.html");
-  else window.location.assign("student.html");
+  else if (profile.role === "learner") window.location.assign("student.html");
+  else throw new Error("Your account has an unsupported role. Ask an administrator to correct your Supabase profile.");
 }
 
 function showAuthError(error) {

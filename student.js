@@ -14,8 +14,16 @@ const { data: learnerProfile, error: profileError } = await supabaseClient
   .select("role,full_name,email")
   .eq("id", session.user.id)
   .maybeSingle();
-if (profileError || !learnerProfile || learnerProfile.role === "admin") {
-  window.location.replace(learnerProfile?.role === "admin" ? "admin.html" : "auth.html?mode=login");
+if (profileError || !learnerProfile) {
+  window.location.replace("auth.html?mode=login");
+  return;
+}
+if (learnerProfile.role === "admin") {
+  window.location.replace("admin.html");
+  return;
+}
+if (learnerProfile.role !== "learner") {
+  window.location.replace("auth.html?mode=login");
   return;
 }
 const learnerAuthSession = {
@@ -58,6 +66,7 @@ const initialLearnerState = () => ({
   profile: { name: "", email: "", role: "Student / learner", avatar: "", location: "", bio: "", notifications: true },
   courses: [],
   purchases: [],
+  enrollmentRequests: [],
   progress: {},
   activities: [],
   sessions: [],
@@ -85,16 +94,19 @@ async function readLearnerState() {
     { data: remoteWorkspace, error: workspaceError },
     { data: remoteCourses, error: coursesError },
     { data: remoteEnrollments, error: enrollmentError },
+    { data: remoteEnrollmentRequests, error: enrollmentRequestsError },
     { data: remotePublicContent, error: publicContentError }
   ] = await Promise.all([
     supabaseClient.from("learner_workspaces").select("data").eq("user_id", learnerAuthSession.id).maybeSingle(),
     supabaseClient.from("courses").select("data").eq("status", "Published"),
     supabaseClient.from("enrollments").select("course_id,status,purchased_at,amount,receipt").eq("user_id", learnerAuthSession.id).eq("status", "Successful"),
+    supabaseClient.from("enrollment_requests").select("id,course_id,status,requested_at").eq("user_id", learnerAuthSession.id).order("requested_at", { ascending: false }),
     supabaseClient.from("public_content").select("kind,data").eq("status", "Published").in("kind", ["job", "resource", "announcement"])
   ]);
   if (workspaceError) throw workspaceError;
   if (coursesError) throw coursesError;
   if (enrollmentError) throw enrollmentError;
+  if (enrollmentRequestsError) throw enrollmentRequestsError;
   if (publicContentError) throw publicContentError;
 
   const defaults = initialLearnerState();
@@ -124,6 +136,7 @@ async function readLearnerState() {
     status: enrollment.status,
     receipt: enrollment.receipt
   }));
+  loaded.enrollmentRequests = remoteEnrollmentRequests;
   loaded.profile = {
     ...defaults.profile,
     ...loaded.profile,
@@ -153,10 +166,15 @@ let certificateFocus = "";
 let previousModalFocus = null;
 
 let learnerPersistQueue = Promise.resolve();
+let persistedLearnerState = JSON.parse(JSON.stringify(learnerState));
+let learnerPersistVersion = 0;
 function saveLearnerState(mutator, message) {
   mutator();
+  const committedState = JSON.parse(JSON.stringify(learnerState));
   const snapshot = JSON.parse(JSON.stringify(learnerState));
+  const version = ++learnerPersistVersion;
   delete snapshot.purchases;
+  delete snapshot.enrollmentRequests;
   delete snapshot.courses;
   delete snapshot.jobs;
   delete snapshot.resources;
@@ -164,10 +182,20 @@ function saveLearnerState(mutator, message) {
   learnerPersistQueue = learnerPersistQueue.then(async () => {
     const { error } = await supabaseClient.from("learner_workspaces").upsert({ user_id: learnerAuthSession.id, data: snapshot });
     if (error) throw error;
-  }).catch((error) => notify(`Supabase could not save this change: ${error.message || "Database request failed."}`, "error"));
+  }).then(() => {
+    persistedLearnerState = committedState;
+    if (message) notify(message);
+    return true;
+  }).catch((error) => {
+    if (version === learnerPersistVersion) {
+      learnerState = JSON.parse(JSON.stringify(persistedLearnerState));
+      renderLearnerView();
+    }
+    notify(`Supabase could not save this change: ${error.message || "Database request failed."}`, "error");
+    return false;
+  });
   renderLearnerView();
-  if (message) notify(message);
-  return true;
+  return learnerPersistQueue;
 }
 
 function notify(message, type = "success") {
@@ -299,7 +327,7 @@ function renderLearning() {
   }).join("");
   return `${pageHeading("My learning", "Your learning area is limited to courses with a successful purchase in your account.", button("Find another course", "navigate-catalog", "", "soft"))}
     <div class="learner-stats"><article class="learner-stat"><div class="learner-stat-top"><span>Purchased courses</span><span class="learner-stat-icon">▤</span></div><strong>${purchased.length}</strong><small>Your personal learning library</small></article><article class="learner-stat"><div class="learner-stat-top"><span>In progress</span><span class="learner-stat-icon coral">▷</span></div><strong>${activeCourses().length}</strong><small>Pick up where you left off</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Completed</span><span class="learner-stat-icon violet">✦</span></div><strong>${completedCourses().length}</strong><small>Celebrate your progress</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Lessons completed</span><span class="learner-stat-icon amber">✓</span></div><strong>${Object.values(learnerState.progress).reduce((sum, progress) => sum + (progress.completedLessons || []).length, 0)}</strong><small>Keep up the great work</small></article></div>
-    <div class="learning-layout"><div class="lesson-list">${rows || `<section class="learner-panel">${empty("Your course library is empty.", "Browse the catalogue and complete the demo checkout to unlock your first course.")}</section>`}</div><div>${panel("Course resources", "Helpful links for your studies", `<div class="resource-list">${learnerState.resources.slice(0, 3).map((resource) => `<div class="resource-row"><span class="activity-icon violet">▧</span><div class="activity-copy"><strong>${escapeLearner(resource.title)}</strong><small>${escapeLearner(resource.category)}</small></div><a class="learner-link-button" href="${escapeLearner(resource.link)}" target="_blank" rel="noopener noreferrer">Open ↗</a></div>`).join("") || empty("No resources added.")}</div>`)}</div></div>`;
+    <div class="learning-layout"><div class="lesson-list">${rows || `<section class="learner-panel">${empty("Your course library is empty.", "Browse the catalogue and request enrollment. An administrator will verify payment before granting access.")}</section>`}</div><div>${panel("Course resources", "Helpful links for your studies", `<div class="resource-list">${learnerState.resources.slice(0, 3).map((resource) => `<div class="resource-row"><span class="activity-icon violet">▧</span><div class="activity-copy"><strong>${escapeLearner(resource.title)}</strong><small>${escapeLearner(resource.category)}</small></div><a class="learner-link-button" href="${escapeLearner(resource.link)}" target="_blank" rel="noopener noreferrer">Open ↗</a></div>`).join("") || empty("No resources added.")}</div>`)}</div></div>`;
 }
 
 function openLearningCourse(id) {
@@ -358,15 +386,13 @@ function updateCourseProgress(id, lessonIndex, markCompleted) {
 function renderMentorship() {
   const sessions = learnerState.sessions.map((session) => `<div class="mentorship-history-row"><strong>${escapeLearner(session.title)} · ${escapeLearner(session.type)}</strong><small>${escapeLearner(session.mentor)}${session.courseId ? ` · ${escapeLearner(getCourse(session.courseId)?.title || "Course")}` : ""} · ${learnerDate(session.date)} at ${escapeLearner(session.time)} · ${escapeLearner(session.status)}</small>${session.link && session.status === "Scheduled" ? `<div style="margin-top:7px"><a class="learner-button learner-button-primary" href="${escapeLearner(session.link)}" target="_blank" rel="noopener noreferrer">Join session ↗</a></div>` : ""}</div>`).join("");
   const questions = learnerState.questions.map((question) => `<div class="mentorship-history-row"><strong>${escapeLearner(question.title)}</strong><small>${escapeLearner(getCourse(question.courseId)?.title || "Course")} · ${learnerDate(question.date)} · ${escapeLearner(question.status)}</small>${question.answer ? `<p style="margin:7px 0 0;color:#77857e;font-size:12px;line-height:1.6">Mentor feedback: ${escapeLearner(question.answer)}</p>` : ""}</div>`).join("");
+  const instructors = [...new Set(learnerState.courses.map((course) => course.instructor).filter(Boolean))];
+  const supportOptions = [...instructors, "Group training"];
   return `${pageHeading("Mentorship & support", "Book time with a mentor, join available training, and get feedback as you learn.")}
-    ${notice("Mentorship bookings and questions are stored in your browser demo. They are not delivered to a real mentor.")}
-    <div class="learner-grid"><section class="learner-panel"><header class="learner-panel-header"><div><h2>Available support</h2><p>Choose an area and request a demo session</p></div></header><div class="learner-panel-body"><div class="mentor-list">${[
-      ["Ada Okafor", "Frontend & UI/UX · Portfolio reviews", "AO"],
-      ["Tunde Adebayo", "Full Stack · Project mentoring", "TA"],
-      ["Ifeanyi Okoro", "AI automation · Workflow Q&A", "IO"]
-    ].map(([name, specialty, initials]) => `<div class="mentor-row"><span class="learner-avatar">${initials}</span><div class="learner-mentor-copy"><strong>${name}</strong><small>${specialty}</small></div><span class="learner-badge">Available</span></div>`).join("")}</div><form data-learner-form="booking" style="margin-top:15px"><div class="mentorship-booking"><div class="learner-field full"><label for="booking-title">What would you like help with?</label><input id="booking-title" name="title" required placeholder="e.g. Review my portfolio project"></div><div class="learner-field"><label for="booking-mentor">Mentor / programme</label><select id="booking-mentor" name="mentor">${["Ada Okafor", "Tunde Adebayo", "Ifeanyi Okoro", "Group training"].map((item) => `<option>${item}</option>`).join("")}</select></div><div class="learner-field"><label for="booking-course">Related course</label><select id="booking-course" name="courseId">${purchasedCourses().map((course) => `<option value="${escapeLearner(course.id)}">${escapeLearner(course.title)}</option>`).join("")}</select></div><div class="learner-field"><label for="booking-date">Preferred date</label><input id="booking-date" name="date" type="date" min="${learnerDay()}" required></div><div class="learner-field"><label for="booking-time">Preferred time</label><input id="booking-time" name="time" type="time" value="14:00" required></div></div><button class="learner-button learner-button-primary" type="submit">Request a demo session ↗</button></form></div></section>
+    ${notice("Session requests and course questions are saved to Supabase and appear in the admin mentorship workspace. Email or real-time mentor notifications are not configured.")}
+    <div class="learner-grid"><section class="learner-panel"><header class="learner-panel-header"><div><h2>Course instructors</h2><p>Request support from an instructor listed on your courses</p></div></header><div class="learner-panel-body"><div class="mentor-list">${instructors.map((name) => `<div class="mentor-row"><span class="learner-avatar">${escapeLearner(name.split(/\s+/).map((part) => part[0] || "").slice(0, 2).join("").toUpperCase())}</span><div class="learner-mentor-copy"><strong>${escapeLearner(name)}</strong><small>Course instructor</small></div></div>`).join("") || empty("Instructor details appear when courses are published.")}</div><form data-learner-form="booking" style="margin-top:15px"><div class="mentorship-booking"><div class="learner-field full"><label for="booking-title">What would you like help with?</label><input id="booking-title" name="title" required placeholder="e.g. Review my portfolio project"></div><div class="learner-field"><label for="booking-mentor">Instructor / programme</label><select id="booking-mentor" name="mentor">${supportOptions.map((item) => `<option>${escapeLearner(item)}</option>`).join("")}</select></div><div class="learner-field"><label for="booking-course">Related course</label><select id="booking-course" name="courseId">${purchasedCourses().map((course) => `<option value="${escapeLearner(course.id)}">${escapeLearner(course.title)}</option>`).join("")}</select></div><div class="learner-field"><label for="booking-date">Preferred date</label><input id="booking-date" name="date" type="date" min="${learnerDay()}" required></div><div class="learner-field"><label for="booking-time">Preferred time</label><input id="booking-time" name="time" type="time" value="14:00" required></div></div><button class="learner-button learner-button-primary" type="submit">Request session ↗</button></form></div></section>
     ${panel("Your mentorship sessions", "Upcoming bookings and learning history", `<div class="activity-list">${sessions || empty("No sessions booked yet.", "Use the form to request a mentorship session.")}</div>`)}
-    </div><div class="learner-grid">${panel("Ask a mentor", "Share a question about a purchased course", `<form data-learner-form="question"><div class="learner-field"><label for="question-course">Course</label><select id="question-course" name="courseId" required>${purchasedCourses().map((course) => `<option value="${escapeLearner(course.id)}">${escapeLearner(course.title)}</option>`).join("")}</select></div><div class="learner-field"><label for="question-text">Your question</label><textarea id="question-text" name="title" required placeholder="Tell us what you are working through…"></textarea></div><button class="learner-button learner-button-primary" type="submit">Send demo question</button></form>`, "")}
+    </div><div class="learner-grid">${panel("Ask a mentor", "Share a question about a purchased course", `<form data-learner-form="question"><div class="learner-field"><label for="question-course">Course</label><select id="question-course" name="courseId" required>${purchasedCourses().map((course) => `<option value="${escapeLearner(course.id)}">${escapeLearner(course.title)}</option>`).join("")}</select></div><div class="learner-field"><label for="question-text">Your question</label><textarea id="question-text" name="title" required placeholder="Tell us what you are working through…"></textarea></div><button class="learner-button learner-button-primary" type="submit">Send question</button></form>`, "")}
     ${panel("Questions & feedback", "A record of your recent support", `<div class="activity-list">${questions || empty("No questions yet.")}</div>`)}</div>`;
 }
 
@@ -512,18 +538,20 @@ function addToCart(courseId) {
   const course = getCourse(courseId);
   if (!course || (course.status !== "Published" && !ownsCourse(course.id))) { notify("This course is not currently available.", "error"); return; }
   if (ownsCourse(courseId)) { notify("This course is already in your learning library."); closeLearnerModal(); return; }
-  if (!learnerState.cart.includes(courseId)) saveLearnerState(() => { learnerState.cart.push(courseId); }, `${course.title} added to your demo basket.`);
+  if (!learnerState.cart.includes(courseId)) saveLearnerState(() => { learnerState.cart.push(courseId); }, `${course.title} added to your basket.`);
   closeLearnerModal();
   if (activeLearnerView === "catalog") renderLearnerView();
 }
 
 function checkoutModal() {
-  openLearnerModal("Course enrollment", `<div class="learner-notice"><span>ⓘ</span><div>Course access is granted from verified enrollment records. Online payment is not configured yet, so checkout is unavailable.</div></div><div class="modal-actions"><button class="learner-button learner-button-primary" data-close-learner-modal>Close</button></div>`);
-}
-
-function completeDemoCheckout() {
-  notify("Checkout is disabled until verified payments can create enrollment records.", "error");
-  closeLearnerModal();
+  const cartCourses = learnerState.cart.map(getCourse).filter((course) => course && !ownsCourse(course.id));
+  const pendingIds = new Set(learnerState.enrollmentRequests.filter((request) => request.status === "Pending").map((request) => request.course_id));
+  const cartRows = cartCourses.map((course) => `<div class="activity-row"><div class="activity-copy"><strong>${escapeLearner(course.title)}</strong><small>${learnerMoney(course.price)}</small></div>${pendingIds.has(course.id) ? badge("Request pending", "pending") : button("Remove", "remove-cart", course.id)}</div>`).join("");
+  const requestRows = learnerState.enrollmentRequests.slice(0, 5).map((request) => {
+    const course = getCourse(request.course_id);
+    return `<div class="activity-row"><div class="activity-copy"><strong>${escapeLearner(course?.title || "Course")}</strong><small>Requested ${learnerDate(request.requested_at?.slice(0, 10))}</small></div>${badge(request.status, request.status === "Pending" ? "pending" : "")}</div>`;
+  }).join("");
+  openLearnerModal("Course enrollment", `<div class="learner-notice"><span>ⓘ</span><div>This sends an enrollment request to the administrators. Course access is granted only after they verify payment and approve it. Online payment is not connected.</div></div><h3 class="section-title">Your basket</h3><div class="activity-list">${cartRows || empty("Your basket is empty.")}</div><div class="modal-actions"><button class="learner-button learner-button-soft" type="button" data-close-learner-modal>Close</button><button class="learner-button learner-button-primary" type="button" data-action="request-enrollment"${cartCourses.some((course) => !pendingIds.has(course.id)) ? "" : " disabled"}>Request enrollment</button></div><h3 class="section-title">Request history</h3><div class="activity-list">${requestRows || empty("No enrollment requests yet.")}</div>`);
 }
 
 function assignmentModal(course) {
@@ -571,7 +599,29 @@ async function handleLearnerAction(action, id, element) {
       saveLearnerState(() => { learnerState.cart = learnerState.cart.filter((item) => item !== id); }, "Course removed from basket.");
       checkoutModal();
       break;
-    case "complete-demo-checkout": completeDemoCheckout(); break;
+    case "request-enrollment": {
+      const pendingIds = new Set(learnerState.enrollmentRequests.filter((request) => request.status === "Pending").map((request) => request.course_id));
+      const requestedCourses = learnerState.cart.map(getCourse).filter((item) => item && !ownsCourse(item.id) && !pendingIds.has(item.id));
+      if (!requestedCourses.length) {
+        notify("Add a course to your basket before requesting enrollment.", "error");
+        return;
+      }
+      const { data: requests, error } = await supabaseClient.from("enrollment_requests").insert(
+        requestedCourses.map((item) => ({ user_id: learnerAuthSession.id, course_id: item.id }))
+      ).select("id,course_id,status,requested_at");
+      if (error) {
+        notify(error.code === "23505" ? "An enrollment request for one of these courses is already pending." : `Could not submit your enrollment request: ${error.message}`, "error");
+        return;
+      }
+      learnerState.enrollmentRequests = [...requests, ...learnerState.enrollmentRequests];
+      saveLearnerState(() => {
+        learnerState.cart = learnerState.cart.filter((courseId) => !requestedCourses.some((item) => item.id === courseId));
+        addActivity("▤", "violet", "Enrollment requested", requestedCourses.map((item) => item.title).join(", "));
+      }, "");
+      closeLearnerModal();
+      notify("Enrollment request sent. An administrator will verify payment before granting course access.");
+      break;
+    }
     case "toggle-lesson": updateCourseProgress(id, Number(element.dataset.lesson), element.getAttribute("aria-pressed") !== "true"); break;
     case "assignment": if (course && ownsCourse(id)) assignmentModal(course); else notify("Purchase this course to submit its assignment.", "error"); break;
     case "quiz": if (course && ownsCourse(id)) quizModal(course); else notify("Purchase this course to access quizzes.", "error"); break;
@@ -695,11 +745,11 @@ document.addEventListener("submit", async (event) => {
   const kind = form.dataset.learnerForm;
   const courseId = form.dataset.id;
   if (kind === "booking") {
-    if (!values.title.trim() || !values.date || !values.time) { notify("Choose a topic, date and time for your demo booking.", "error"); return; }
+    if (!values.title.trim() || !values.date || !values.time || new Date(`${values.date}T${values.time}`) < new Date()) { notify("Choose a topic and a future date and time for the session request.", "error"); return; }
     saveLearnerState(() => {
       learnerState.sessions.unshift({ id: `LEARN-MNT-${Date.now()}`, title: values.title.trim(), mentor: values.mentor, courseId: values.courseId, date: values.date, time: values.time, type: values.mentor === "Group training" ? "Live training" : "1:1 mentorship", status: "Scheduled", link: "" });
       addActivity("↗", "violet", "Mentorship session requested", values.title.trim());
-    }, "Demo mentorship request saved. It was not sent to a mentor.");
+    }, "Session request saved to Supabase and sent to the admin mentorship queue.");
     closeLearnerModal();
     return;
   }
@@ -709,7 +759,7 @@ document.addEventListener("submit", async (event) => {
     saveLearnerState(() => {
       learnerState.questions.unshift({ id: `Q-${Date.now()}`, title: values.title.trim(), courseId: values.courseId, date: learnerDay(), status: "Pending response", answer: "" });
       addActivity("?", "violet", "Question saved", getCourse(values.courseId)?.title || "Course support");
-    }, "Your demo question is saved locally; no mentor was notified.");
+    }, "Your question was saved to Supabase and added to the support queue.");
     renderLearnerView();
     return;
   }
@@ -719,9 +769,9 @@ document.addEventListener("submit", async (event) => {
       learnerState.progress[courseId] ||= getProgress(courseId);
       learnerState.progress[courseId].assignment = values.submission.trim();
       learnerState.progress[courseId].assignmentDate = learnerDay();
-      learnerState.progress[courseId].feedback ||= "Submission saved. Mentor feedback is not connected in this preview.";
+      learnerState.progress[courseId].feedback ||= "";
       addActivity("▤", "coral", "Assignment submitted", getCourse(courseId)?.title || "Course");
-    }, "Assignment saved in your browser. It was not sent to an instructor.");
+    }, "Assignment saved to Supabase and added to the instructor review queue.");
     closeLearnerModal();
     return;
   }
@@ -735,17 +785,27 @@ document.addEventListener("submit", async (event) => {
   if (kind === "profile") {
     const email = values.email.trim();
     if (!values.name.trim() || values.name.trim().length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { notify("Enter a name and a valid email address.", "error"); return; }
-    const saved = saveLearnerState(() => {
+    const previousName = learnerAuthSession.name;
+    const updatedName = values.name.trim();
+    const { error: profileError } = await supabaseClient.from("profiles").update({ full_name: updatedName }).eq("id", learnerAuthSession.id);
+    if (profileError) {
+      notify(`Could not update your Supabase profile name: ${profileError.message}`, "error");
+      return;
+    }
+    learnerAuthSession.name = updatedName;
+    const saved = await saveLearnerState(() => {
       learnerState.profile.name = values.name.trim();
       learnerState.profile.email = email;
       learnerState.profile.location = values.location.trim();
       learnerState.profile.bio = values.bio.trim();
       learnerState.profile.notifications = form.querySelector('[name="notifications"]').checked;
-    }, "Learner profile saved to Supabase.");
+    }, "");
     if (saved) {
-      const { error } = await supabaseClient.from("profiles").update({ full_name: values.name.trim() }).eq("id", learnerAuthSession.id);
-      if (error) notify(`Could not update your Supabase profile name: ${error.message}`, "error");
-      else learnerAuthSession.name = values.name.trim();
+      notify("Learner profile saved to Supabase.");
+    } else {
+      learnerAuthSession.name = previousName;
+      const { error: rollbackError } = await supabaseClient.from("profiles").update({ full_name: previousName }).eq("id", learnerAuthSession.id);
+      if (rollbackError) notify(`The workspace save failed, and the profile name could not be restored: ${rollbackError.message}`, "error");
     }
     return;
   }
@@ -755,9 +815,9 @@ learnerContent.addEventListener("change", (event) => {
   if (event.target.id !== "avatar-upload") return;
   const file = event.target.files?.[0];
   if (!file) return;
-  if (!file.type.startsWith("image/") || file.size > 600 * 1024) { notify("Choose an image under 600 KB for local browser storage.", "error"); event.target.value = ""; return; }
+  if (!file.type.startsWith("image/") || file.size > 600 * 1024) { notify("Choose an image under 600 KB.", "error"); event.target.value = ""; return; }
   const reader = new FileReader();
-  reader.addEventListener("load", () => saveLearnerState(() => { learnerState.profile.avatar = String(reader.result); }, "Profile photo saved on this device."));
+  reader.addEventListener("load", () => saveLearnerState(() => { learnerState.profile.avatar = String(reader.result); }, "Profile photo saved to Supabase."));
   reader.addEventListener("error", () => notify("The selected image could not be read.", "error"));
   reader.readAsDataURL(file);
 });
