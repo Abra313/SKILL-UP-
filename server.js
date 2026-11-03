@@ -3,6 +3,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const root = __dirname;
+const envFile = path.join(root, ".env");
+if (fs.existsSync(envFile)) {
+  if (typeof process.loadEnvFile !== "function") {
+    throw new Error("Loading .env requires Node.js 20.12 or later. Upgrade Node.js or set the variables in your environment.");
+  }
+  process.loadEnvFile(envFile);
+}
+
 const port = Number(process.env.PORT) || 8000;
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -39,10 +47,10 @@ const server = http.createServer((request, response) => {
   }
 
   if (pathname === "/supabase-config.js") {
-    const projectUrl = process.env.SUPABASE_URL;
-    const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+    const projectUrl = process.env.SUPABASE_URL?.trim();
+    const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY?.trim();
     if (!projectUrl || !publishableKey) {
-      send(response, 500, "text/plain; charset=utf-8", "Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in .env");
+      send(response, 500, "text/plain; charset=utf-8", "Supabase configuration is missing. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in .env or in the hosting environment.");
       return;
     }
     let parsedUrl;
@@ -51,7 +59,7 @@ const server = http.createServer((request, response) => {
       return;
     }
     if (parsedUrl.protocol !== "https:" || !parsedUrl.hostname.endsWith(".supabase.co")) {
-      send(response, 500, "text/plain; charset=utf-8", "SUPABASE_URL must be a Supabase HTTPS URL");
+      send(response, 500, "text/plain; charset=utf-8", "SUPABASE_URL must be an HTTPS URL ending in .supabase.co");
       return;
     }
     const config = `window.SKILLUP_SUPABASE_CONFIG = ${JSON.stringify({ url: parsedUrl.origin, publishableKey })};`;

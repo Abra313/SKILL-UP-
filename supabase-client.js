@@ -1,12 +1,19 @@
 (() => {
   const { url: projectUrl, publishableKey } = window.SKILLUP_SUPABASE_CONFIG || {};
   if (!projectUrl || !publishableKey) {
-    throw new Error("Supabase config is missing. Start the app with node --env-file=.env server.js.");
+    window.SKILLUP_SUPABASE_ERROR = "Supabase settings could not be loaded. Start the app with node server.js, then open the address it prints.";
+    return;
   }
 
   if (!window.supabase?.createClient) {
-    throw new Error("Supabase client library did not load.");
+    window.SKILLUP_SUPABASE_ERROR = "The Supabase library did not load. Check your internet connection and allow cdn.jsdelivr.net.";
+    return;
   }
 
-  window.skillUpSupabase = window.supabase.createClient(projectUrl, publishableKey);
+  try {
+    window.skillUpSupabase = window.supabase.createClient(projectUrl, publishableKey);
+    delete window.SKILLUP_SUPABASE_ERROR;
+  } catch (error) {
+    window.SKILLUP_SUPABASE_ERROR = `Supabase could not start: ${error.message || "check the project URL and publishable key."}`;
+  }
 })();

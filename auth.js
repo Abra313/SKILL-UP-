@@ -23,6 +23,7 @@ const courseNames = {
   "cybersecurity-fundamentals": "Cybersecurity Fundamentals"
 };
 const selectedCourse = courseNames[query.get("course")];
+const supabaseSetupMessage = () => window.SKILLUP_SUPABASE_ERROR || "Supabase could not start. Reload the page and check the server configuration.";
 if (selectedCourse) {
   document.querySelector("#selected-course").textContent = selectedCourse;
   document.querySelector("#course-selection").hidden = false;
@@ -134,7 +135,7 @@ authForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!validateForm()) return;
   if (!supabaseClient) {
-    showMessage("Supabase is not configured. Check supabase-client.js and reload this page.");
+    showMessage(supabaseSetupMessage());
     return;
   }
   const email = document.querySelector("#email").value.trim().toLowerCase();
@@ -175,7 +176,7 @@ passwordToggle.addEventListener("click", () => {
 document.querySelector("#forgot-password").addEventListener("click", (event) => {
   event.preventDefault();
   if (!supabaseClient) {
-    showMessage("Supabase is not configured. Check supabase-client.js and reload this page.");
+    showMessage(supabaseSetupMessage());
     return;
   }
   const email = document.querySelector("#email").value.trim().toLowerCase();
@@ -203,5 +204,5 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-if (!supabaseClient) showMessage("Supabase is not configured. Check supabase-client.js.");
+if (!supabaseClient) showMessage(supabaseSetupMessage());
 setMode(mode);

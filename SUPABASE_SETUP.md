@@ -1,13 +1,13 @@
 # Supabase setup
 
-The app reads `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` from `.env` through the local Node server. The publishable key is intended for browser use; database access is restricted by the RLS policies in `supabase/schema.sql`. Never put a Supabase `service_role` key in `.env` or this frontend.
+The app reads `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` from `.env` through the Node server. The publishable key is intended for browser use; database access is restricted by the RLS policies in `supabase/schema.sql`. Never put a Supabase `service_role` key in `.env` or this frontend.
 
 ## Connect the database
 
 1. Open the Supabase project `tchsnkitlycooksmvytu` and go to **SQL Editor**.
 2. Run the full contents of `supabase/schema.sql`. It creates/backfills profiles for existing Auth users, enforces the `admin` and `learner` roles, and installs a trigger that creates a learner profile whenever a new Auth user signs up. Existing profile roles are preserved as `admin` or normalized to `learner`. Run this script again to apply schema updates.
 3. In **Authentication → URL Configuration**, set the Site URL to `http://localhost:8001` and add `http://localhost:8001/**` to Redirect URLs. Add your deployed website URL before deployment.
-4. From the project folder, run `node --env-file=.env server.js`, then open `http://localhost:8001`. Node.js 20.6 or later is required for `--env-file`.
+4. From the project folder, run `node server.js`. The server loads `.env` automatically and prints the address to open. Node.js 20.12 or later is required. If other devices need access, deploy the app to a public HTTPS host with `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` configured there; `localhost` only works on the computer running the server.
 5. Create or sign in to the administrator account through the app's Supabase Auth form. All public signups are learners by default; users cannot select or assign themselves the admin role.
 6. Promote the administrator in SQL Editor, replacing the email with the Auth account email:
 
@@ -44,3 +44,4 @@ The app reads `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` from `.env` through 
 - Legacy localStorage purchases are not converted into `enrollments`. They are user-editable demo records and cannot be trusted to grant course access; verify prior purchases and add only confirmed enrollments from the admin/database side.
 - Existing sample payments, activities, and learner records are demo data. A real payment provider and verified transaction records are not connected.
 - Email confirmation and password reset redirects must be configured in Supabase Auth for the deployed domain.
+- For deployment, configure `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` as hosting environment variables. The host must run `server.js` or provide the `/supabase-config.js` endpoint; serving the HTML files alone does not provide the Supabase settings. Add the deployed HTTPS origin to Supabase Auth's allowed redirect URLs.
