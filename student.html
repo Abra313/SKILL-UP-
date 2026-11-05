@@ -26,15 +26,15 @@
           <button class="learner-nav-item" data-view="profile"><span>⚙</span>Profile &amp; settings</button>
         </nav>
         <div class="learner-sidebar-bottom">
-          <a class="learner-public-link" href="index.html"><span>↖</span> Visit SKILL-UP</a>
           <div class="learner-user" id="sidebar-user"></div>
+          <a class="learner-public-link" href="auth.html?mode=login" data-sign-out><span>↗</span> Sign out</a>
         </div>
       </aside>
       <div class="learner-main-shell">
         <header class="learner-topbar">
           <button class="learner-menu-toggle" type="button" aria-label="Open learner navigation" aria-expanded="false">☰</button>
           <div class="learner-breadcrumb"><span>My workspace</span><b>/</b><strong id="learner-current-page">Overview</strong></div>
-          <div class="learner-top-actions"><button class="learner-notification-button" type="button" data-action="announcements" aria-label="Open announcements">♧<span class="notification-dot"></span></button><button class="learner-top-avatar" type="button" data-view="profile" aria-label="Open profile">A</button></div>
+          <div class="learner-top-actions"><button class="learner-notification-button" type="button" data-sign-out aria-label="Sign out" title="Sign out">↗</button><button class="learner-notification-button" type="button" data-action="announcements" aria-label="Open announcements">♧<span class="notification-dot"></span></button><button class="learner-top-avatar" type="button" data-view="profile" aria-label="Open profile">A</button></div>
         </header>
         <main class="learner-content" id="learner-content" tabindex="-1"></main>
       </div>
@@ -48,8 +48,10 @@
       </section>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="/supabase-config.js"></script>
+    <script src="supabase-config.js"></script>
     <script src="supabase-client.js"></script>
-    <script src="student.js"></script>
+    <script src="auth-store.js"></script>
+    <script src="ai-course-catalog.js?v=2"></script>
+    <script src="student.js?v=2"></script>
   </body>
 </html>

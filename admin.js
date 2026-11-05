@@ -1,27 +1,12 @@
 (async () => {
+const currentUser = await window.skillUpAuth.requireRole("admin");
+if (!currentUser) return;
 const supabaseClient = window.skillUpSupabase;
-if (!supabaseClient) {
-  window.location.replace("auth.html?mode=login&admin=1");
-  return;
-}
-const { data: { session } } = await supabaseClient.auth.getSession();
-if (!session) {
-  window.location.replace("auth.html?mode=login&admin=1");
-  return;
-}
-const { data: adminProfile, error: profileError } = await supabaseClient
-  .from("profiles")
-  .select("role")
-  .eq("id", session.user.id)
-  .maybeSingle();
-if (profileError || adminProfile?.role !== "admin") {
-  await supabaseClient.auth.signOut();
-  window.location.replace("auth.html?mode=login&admin=1");
-  return;
-}
+const adminDisplayName = currentUser.name?.trim() || currentUser.email;
+const adminInitials = adminDisplayName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+document.querySelector("#admin-profile-name").textContent = adminDisplayName;
+document.querySelector("#admin-profile-initials").textContent = adminInitials;
 
-const STORAGE_KEY = "skillup-admin-prototype-v1";
-const WORKSPACE_ID = "main";
 const mainContent = document.querySelector("#main-content");
 const modalLayer = document.querySelector("#modal-layer");
 const modalTitle = document.querySelector("#modal-title");
@@ -35,8 +20,6 @@ const pageNames = {
   finance: "Payments & finance",
   referrals: "Referrals",
   mentorship: "Mentorship",
-  careers: "Careers & jobs",
-  content: "Website content",
   settings: "Settings & security"
 };
 const today = new Date();
@@ -46,17 +29,31 @@ const day = (offset) => {
   return date.toISOString().slice(0, 10);
 };
 const initialState = () => ({
+  catalogInitialized: false,
   courses: [
     { id: "c-fullstack", title: "Full Stack Development", category: "Development", price: 5000, instructor: "Tunde Adebayo", status: "Published", enrolled: 182, completion: 64, description: "Build complete websites and web applications with frontend, backend and database skills.", modules: "Web fundamentals\nFrontend foundations\nBackend APIs\nDatabases and deployment", materials: "https://example.com/fullstack-guide.pdf", requirements: "Complete all core modules and submit the portfolio project.", assignments: "Build and deploy a responsive portfolio website.", quizzes: "Web fundamentals quiz\nJavaScript and API quiz", thumbnail: "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-120) },
     { id: "c-frontend", title: "Frontend Development", category: "Development", price: 5000, instructor: "Ada Okafor", status: "Published", enrolled: 146, completion: 71, description: "Master HTML, CSS and JavaScript to create beautiful, responsive websites.", modules: "HTML and accessibility\nCSS and responsive layouts\nJavaScript fundamentals\nModern frontend projects", materials: "", requirements: "Complete all core lessons and submit the final website project.", assignments: "Create a responsive product landing page.", quizzes: "HTML and accessibility quiz\nCSS layout quiz", thumbnail: "https://images.unsplash.com/photo-1547658719-da2b51169166?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-105) },
-    { id: "c-ai", title: "AI Automation", category: "Artificial Intelligence", price: 5000, instructor: "Ifeanyi Okoro", status: "Published", enrolled: 129, completion: 53, description: "Use AI tools and automation platforms to build intelligent workflows.", modules: "AI foundations\nWorkflow automation\nConnecting business tools\nBuild an automation project", materials: "", requirements: "Submit one working automation and complete the final quiz.", assignments: "Create an automated lead follow-up workflow.", quizzes: "Workflow automation fundamentals", thumbnail: "https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-89) },
+    { id: "c-ai", title: "AI Automation", category: "Artificial Intelligence", price: 5000, instructor: "Ifeanyi Okoro", status: "Published", enrolled: 129, completion: 53, description: "Use AI tools and automation platforms to build intelligent workflows.", modules: "AI foundations\nWorkflow automation\nConnecting business tools\nBuild an automation project", materials: "", requirements: "Submit one working automation and complete the final quiz.", assignments: "Create an automated lead follow-up workflow.", quizzes: "Workflow automation fundamentals", thumbnail: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-89) },
     { id: "c-voice", title: "AI Voice Agent", category: "Artificial Intelligence", price: 5000, instructor: "Chika Nwosu", status: "Published", enrolled: 87, completion: 46, description: "Create voice agents that communicate, help customers and automate conversations.", modules: "Voice AI fundamentals\nConversation design\nAgent integrations\nTesting and deployment", materials: "", requirements: "Build, test and document a working voice-agent prototype.", assignments: "Design a helpful customer-support voice agent.", quizzes: "Voice agent safety and conversation design", thumbnail: "https://images.unsplash.com/photo-1590602847861-f357a9332bbc?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-70) },
     { id: "c-vibe", title: "Vibe Coding & Google AdSense", category: "Development", price: 5000, instructor: "Tunde Adebayo", status: "Published", enrolled: 94, completion: 39, description: "Build digital products with AI-assisted coding and explore website monetization.", modules: "AI-assisted prototyping\nCreate a web product\nContent and publishing\nMonetization basics", materials: "", requirements: "Publish a simple project and complete the monetization knowledge check.", assignments: "Build and publish a small useful website.", quizzes: "Content quality and AdSense policy quiz", thumbnail: "https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-55) },
     { id: "c-ux", title: "UI/UX Design", category: "Design", price: 5000, instructor: "Ada Okafor", status: "Published", enrolled: 118, completion: 68, description: "Learn wireframing, prototyping and user-friendly digital product design.", modules: "Design thinking\nResearch and personas\nWireframes and prototypes\nUsability and handoff", materials: "", requirements: "Submit a case study and a clickable prototype.", assignments: "Redesign a familiar mobile app flow.", quizzes: "Accessibility and usability quiz", thumbnail: "https://images.unsplash.com/photo-1586717791821-3f44a563fa4c?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-44) },
     { id: "c-graphics", title: "Graphics Design", category: "Design", price: 5000, instructor: "Zainab Musa", status: "Published", enrolled: 103, completion: 62, description: "Develop creative skills in branding, social media graphics and visual communication.", modules: "Design fundamentals\nColor and typography\nBranding projects\nSocial media campaigns", materials: "", requirements: "Submit a mini brand kit with three design assets.", assignments: "Design a social media campaign for a local business.", quizzes: "Color, typography and visual hierarchy", thumbnail: "https://images.unsplash.com/photo-1626785774573-4b799315345d?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-31) },
     { id: "c-mobile", title: "Mobile App Development", category: "Development", price: 5000, instructor: "Ifeanyi Okoro", status: "Draft", enrolled: 0, completion: 0, description: "Create mobile applications and turn ideas into functional Android and iOS experiences.", modules: "Mobile app foundations\nInterface and navigation\nConnect to APIs\nBuild and test an app", materials: "", requirements: "Complete the core lessons and submit a tested mobile app prototype.", assignments: "Build an app with navigation and one data-driven screen.", quizzes: "Mobile app fundamentals", thumbnail: "https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-12) },
     { id: "c-cybersecurity", title: "Cybersecurity Fundamentals", category: "Cybersecurity", price: 5000, instructor: "Chika Nwosu", status: "Published", enrolled: 0, completion: 0, description: "Learn ethical, defensive security practices for protecting accounts, networks and digital information.", modules: "Security foundations and ethics\nThreat modeling and risk management\nIdentity, access and network defense\nSecure software and data protection\nIncident response and recovery\nSecurity awareness capstone", materials: "", requirements: "Complete the core lessons and submit a defensive security plan.", assignments: "Create a security awareness and incident response plan for a small organization.", quizzes: "Security foundations and safe practice", thumbnail: "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(0) }
-  ],
+  ].concat((window.skillUpAICourses || []).map((course) => ({
+    ...course,
+    price: 5000,
+    instructor: "SKILL-UP Team",
+    status: "Published",
+    enrolled: 0,
+    completion: 0,
+    thumbnail: course.thumbnail,
+    banner: "",
+    materials: "",
+    requirements: "Complete the course modules and submit the final project.",
+    assignments: "Create a practical project that applies the skills from this course.",
+    quizzes: "Course fundamentals"
+  }))),
   categories: ["Development", "Artificial Intelligence", "Design", "Digital marketing"],
   students: [
     { id: "s-1001", name: "Amara Okafor", email: "amara.okafor@example.com", joined: day(-1), status: "Active", courses: ["c-fullstack", "c-frontend"], progress: 68, initials: "AO", certificate: "In progress", activity: "Completed a project lesson; last active today." },
@@ -125,8 +122,7 @@ const initialState = () => ({
     { id: "FAQ-04", question: "Can SKILL-UP help me secure remote jobs?", answer: "We provide career preparation and support for finding opportunities. Employment is not guaranteed.", status: "Published" }
   ],
   admins: [
-    { id: "ADM-001", name: "Site Admin", email: "admin@skill-up.local", role: "Super admin", status: "Active" },
-    { id: "ADM-002", name: "Content Manager", email: "content@skill-up.local", role: "Content admin", status: "Active" }
+    { id: currentUser.id, name: currentUser.name, email: currentUser.email, role: "Super admin", status: "Active" }
   ],
   testimonials: [
     { id: "TST-01", name: "Amara O.", quote: "The project feedback helped me understand how to improve my portfolio.", role: "Frontend learner", status: "Published" },
@@ -141,7 +137,7 @@ const initialState = () => ({
     { id: "ACT-03", message: "New mentorship session scheduled", by: "Ada Okafor", date: day(-1) }
   ],
   settings: { referralRate: 15, gateway: "Paystack (demo)", emailNotifications: true, maintenanceMode: false },
-  audit: [{ id: "LOG-001", action: "Local demo workspace initialized", by: "Site Admin", date: day(0) }]
+  audit: [{ id: "LOG-001", action: "Sample workspace initialized", by: "Site Admin", date: day(0) }]
 });
 
 function escapeHTML(value) {
@@ -150,221 +146,228 @@ function escapeHTML(value) {
   })[character]);
 }
 
-function serializePublicContent(data) {
-  return [
-    { id: "homepage", kind: "homepage", status: "Published", data: data.siteContent },
-    ...["faqs", "jobs", "resources", "testimonials", "announcements"].flatMap((key) => {
-      const kind = { faqs: "faq", jobs: "job", resources: "resource", testimonials: "testimonial", announcements: "announcement" }[key];
-      return (data[key] || []).map((item) => ({ id: `${kind}:${item.id}`, kind, status: item.status || "Draft", data: item }));
-    })
-  ];
-}
-
-async function readData() {
-  const [
-    { data: remoteWorkspace, error: workspaceError },
-    { data: remoteCourses, error: coursesError },
-    { data: remoteProfiles, error: profilesError },
-    { data: remoteEnrollments, error: enrollmentsError },
-    { data: remoteEnrollmentRequests, error: enrollmentRequestsError },
-    { data: remoteLearnerWorkspaces, error: learnerWorkspacesError },
-    { data: remoteContent, error: contentError }
-  ] = await Promise.all([
-    supabaseClient.from("admin_workspaces").select("data").eq("id", WORKSPACE_ID).maybeSingle(),
-    supabaseClient.from("courses").select("id,status,data"),
-    supabaseClient.from("profiles").select("id,email,full_name,role,created_at"),
-    supabaseClient.from("enrollments").select("user_id,course_id,status,purchased_at,amount,receipt"),
-    supabaseClient.from("enrollment_requests").select("id,user_id,course_id,status,requested_at,reviewed_at").order("requested_at", { ascending: false }),
-    supabaseClient.from("learner_workspaces").select("user_id,data"),
-    supabaseClient.from("public_content").select("id,kind,status,data")
-  ]);
-  if (workspaceError) throw workspaceError;
-  if (coursesError) throw coursesError;
-  if (profilesError) throw profilesError;
-  if (enrollmentsError) throw enrollmentsError;
-  if (enrollmentRequestsError) throw enrollmentRequestsError;
-  if (learnerWorkspacesError) throw learnerWorkspacesError;
-  if (contentError) throw contentError;
-
-  let legacyData = null;
-  if (!remoteWorkspace) {
-    try { legacyData = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); } catch { legacyData = null; }
-  }
+async function readData(source, learnerWorkspaces) {
   const defaults = initialState();
-  const source = remoteWorkspace?.data || legacyData || defaults;
+  source ||= defaults;
   const loaded = Object.fromEntries(Object.keys(defaults).map((key) => [key, source[key] ?? defaults[key]]));
-  if (!remoteWorkspace && !legacyData) {
-    ["students", "opportunityInterests", "payments", "referrals", "withdrawals", "sessions", "reviews", "jobs", "resources", "faqs", "admins", "testimonials", "campaigns", "announcements", "activity", "audit"].forEach((key) => { loaded[key] = []; });
-    loaded.categories = [];
+  if (!source.catalogInitialized) {
+    const savedCourseIds = new Set(loaded.courses.map((course) => course.id));
+    loaded.courses.push(...defaults.courses.filter((course) => !savedCourseIds.has(course.id)));
+    loaded.catalogInitialized = true;
   }
-  loaded.courses = remoteCourses.map((course) => ({ ...course.data, status: course.status }));
-  const enrollmentsByUser = new Map();
-  remoteEnrollments.forEach((enrollment) => {
-    const courseIds = enrollmentsByUser.get(enrollment.user_id) || [];
-    courseIds.push(enrollment.course_id);
-    enrollmentsByUser.set(enrollment.user_id, courseIds);
-  });
-  loaded.students = remoteProfiles.filter((profile) => profile.role === "learner").map((profile) => ({
-      id: profile.id,
-      name: profile.full_name || profile.email,
-      email: profile.email,
-      joined: profile.created_at.slice(0, 10),
-      status: "Registered",
-      courses: enrollmentsByUser.get(profile.id) || [],
-      progress: 0,
+  removedSeedRecords = removeSeedRecords(loaded);
+  const learnersById = new Map(learnerWorkspaces.map((workspace) => [
+    workspace.workspace_key.slice("learner:".length),
+    workspace.data
+  ]));
+  const { data: accounts, error: profilesError } = await supabaseClient.client
+    .from("profiles")
+    .select("id,email,full_name,role,created_at")
+    .order("created_at", { ascending: false });
+  if (profilesError) throw profilesError;
+  const courseById = new Map(loaded.courses.map((course) => [course.id, course]));
+  const learnerSessions = [];
+  const learnerReviews = [];
+  const learnerRequests = new Map((loaded.enrollmentRequests || []).map((request) => [request.id, request]));
+
+  for (const account of accounts.filter((item) => ["learner", "user"].includes(item?.role) && item.id && item.email)) {
+    const userId = account.id;
+    const learner = learnersById.get(userId) || {};
+    const purchasesByCourse = new Map((learner?.purchases || []).map((purchase) => [purchase.courseId, purchase]));
+    for (const payment of loaded.payments.filter((item) => item.userId === userId || item.studentId === userId)) {
+      purchasesByCourse.set(payment.courseId, {
+        courseId: payment.courseId,
+        purchasedAt: payment.date,
+        amount: payment.amount,
+        status: payment.status,
+        receipt: payment.id
+      });
+    }
+    const purchases = [...purchasesByCourse.values()];
+    const progressEntries = Object.entries(learner?.progress || {});
+    const student = loaded.students.find((item) => item.id === userId) || {
+      id: userId, joined: day(0), status: "Active", courses: [], progress: 0
+    };
+    Object.assign(student, {
+      name: account.full_name,
+      email: account.email,
+      joined: account.created_at?.slice(0, 10) || student.joined,
+      courses: purchases.filter((purchase) => purchase.status === "Successful").map((purchase) => purchase.courseId),
+      progress: progressEntries.length ? Math.round(progressEntries.reduce((sum, [courseId, item]) => {
+        if (item.completed) return sum + 100;
+        const lessonCount = (courseById.get(courseId)?.modules || "").split("\n").filter(Boolean).length;
+        return sum + (lessonCount ? Math.round(((item.completedLessons || []).length / lessonCount) * 100) : 0);
+      }, 0) / progressEntries.length) : 0,
       source: "supabase"
-    }));
-  const learnerDataById = new Map(remoteLearnerWorkspaces.map((entry) => [entry.user_id, entry.data || {}]));
-  loaded.students.forEach((student) => {
-    const progress = learnerDataById.get(student.id)?.progress || {};
-    const courseProgress = student.courses.map((courseId) => {
-      const course = remoteCourses.find((item) => item.id === courseId)?.data;
-      if (!course) return null;
-      const lessonCount = (course.modules || "").split("\n").filter(Boolean).length || 1;
-      const learnerProgress = progress[courseId] || {};
-      return learnerProgress.completed ? 100 : Math.min(99, Math.round(((learnerProgress.completedLessons || []).length / lessonCount) * 100));
-    }).filter((value) => value !== null);
-    student.progress = courseProgress.length ? Math.round(courseProgress.reduce((sum, value) => sum + value, 0) / courseProgress.length) : 0;
-  });
-  loaded.courses = remoteCourses.map((courseRow) => {
-    const course = { ...courseRow.data, status: courseRow.status };
-    const enrolledUsers = remoteEnrollments.filter((enrollment) => enrollment.course_id === course.id && enrollment.status === "Successful");
-    const lessonCount = (course.modules || "").split("\n").filter(Boolean).length || 1;
-    const progressValues = enrolledUsers.map((enrollment) => {
-      const progress = learnerDataById.get(enrollment.user_id)?.progress?.[course.id] || {};
-      return progress.completed ? 100 : Math.min(99, Math.round(((progress.completedLessons || []).length / lessonCount) * 100));
     });
-    course.enrolled = enrolledUsers.length;
-    course.completion = progressValues.length ? Math.round(progressValues.reduce((sum, value) => sum + value, 0) / progressValues.length) : 0;
-    return course;
-  });
-  loaded.payments = remoteEnrollments.map((enrollment) => ({
-    id: enrollment.receipt || `${enrollment.user_id}:${enrollment.course_id}`,
-    userId: enrollment.user_id,
-    studentId: enrollment.user_id,
-    courseId: enrollment.course_id,
-    amount: Number(enrollment.amount),
-    fee: 0,
-    status: enrollment.status,
-    date: enrollment.purchased_at,
-    method: "Enrollment record"
-  }));
-  const profilesById = new Map(remoteProfiles.map((profile) => [profile.id, profile]));
-  const coursesById = new Map(remoteCourses.map((course) => [course.id, course.data]));
-  loaded.enrollmentRequests = remoteEnrollmentRequests.map((request) => ({
-    ...request,
-    studentId: request.user_id,
-    student: profilesById.get(request.user_id)?.full_name || profilesById.get(request.user_id)?.email || "Learner",
-    email: profilesById.get(request.user_id)?.email || "",
-    course: coursesById.get(request.course_id)?.title || request.course_id
-  }));
-  loaded.admins = remoteProfiles.filter((profile) => profile.role === "admin").map((profile) => ({
-    id: profile.id,
-    name: profile.full_name || profile.email,
-    email: profile.email,
-    role: "Administrator",
-    status: "Active",
-    source: "supabase"
-  }));
-  if (!remoteContent.length) {
-    const seedContent = serializePublicContent(loaded);
-    if (seedContent.length) {
-      const { error } = await supabaseClient.from("public_content").upsert(seedContent);
-      if (error) throw error;
-      remoteContent.push(...seedContent);
+    if (!loaded.students.includes(student)) loaded.students.unshift(student);
+
+    for (const purchase of purchases) {
+      const payment = {
+        id: purchase.receipt || `ENR-${userId}-${purchase.courseId}`,
+        userId,
+        studentId: userId,
+        courseId: purchase.courseId,
+        amount: Number(purchase.amount) || 0,
+        fee: 0,
+        status: purchase.status,
+        date: purchase.purchasedAt || day(0),
+        method: "Enrollment record"
+      };
+      const paymentIndex = loaded.payments.findIndex((item) => item.userId === userId && item.courseId === payment.courseId);
+      if (paymentIndex < 0) loaded.payments.unshift(payment);
+      else loaded.payments[paymentIndex] = { ...loaded.payments[paymentIndex], ...payment };
+    }
+
+    for (const request of learner?.enrollmentRequests || []) {
+      learnerRequests.set(request.id, {
+        ...request,
+        user_id: userId,
+        studentId: userId,
+        student: account.full_name,
+        email: account.email,
+        course: courseById.get(request.course_id)?.title || request.course_id
+      });
+    }
+    for (const session of learner?.sessions || []) {
+      learnerSessions.push({
+        ...session,
+        id: `${userId}:${session.id}`,
+        userId,
+        sourceSessionId: session.id,
+        student: account.full_name,
+        source: "learner"
+      });
+    }
+    for (const question of learner?.questions || []) {
+      learnerReviews.push({
+        id: `question:${userId}:${question.id}`,
+        userId,
+        questionId: question.id,
+        type: "Question",
+        title: question.title,
+        student: account.full_name,
+        course: courseById.get(question.courseId)?.title || "Course",
+        submitted: question.date,
+        status: question.answer ? "Responded" : question.status,
+        feedback: question.answer || "",
+        source: "learner"
+      });
+    }
+    for (const [courseId, item] of Object.entries(learner?.progress || {})) {
+      if (!item.assignment) continue;
+      learnerReviews.push({
+        id: `assignment:${userId}:${courseId}`,
+        userId,
+        courseId,
+        type: "Assignment",
+        title: item.assignment,
+        student: account.full_name,
+        course: courseById.get(courseId)?.title || "Course",
+        submitted: item.assignmentDate || "",
+        status: item.feedback ? "Reviewed" : "Pending review",
+        feedback: item.feedback || "",
+        source: "learner"
+      });
     }
   }
-  const contentByKind = (kind) => remoteContent.filter((item) => item.kind === kind).map((item) => item.data);
-  loaded.siteContent = contentByKind("homepage")[0] || loaded.siteContent;
-  loaded.faqs = contentByKind("faq");
-  loaded.jobs = contentByKind("job");
-  loaded.resources = contentByKind("resource");
-  loaded.testimonials = contentByKind("testimonial");
-  loaded.announcements = contentByKind("announcement");
-  const workspaceEntries = remoteLearnerWorkspaces.map((entry) => ({
-    userId: entry.user_id,
-    profile: profilesById.get(entry.user_id),
-    data: entry.data || {}
-  }));
-  const storedWithdrawals = new Map(loaded.withdrawals.map((request) => [request.id, request]));
-  const learnerSessions = workspaceEntries.flatMap(({ userId, profile, data }) => (data.sessions || []).map((session) => ({
-    ...session,
-    id: `${userId}:${session.id}`,
-    userId,
-    sourceSessionId: session.id,
-    student: session.student || profile?.full_name || profile?.email || "Learner",
-    source: "learner"
-  })));
-  const learnerQuestions = workspaceEntries.flatMap(({ userId, profile, data }) => (data.questions || []).map((question) => ({
-    id: `question:${question.id}`,
-    userId,
-    questionId: question.id,
-    type: "Question",
-    title: question.title,
-    student: profile?.full_name || profile?.email || "Learner",
-    course: loaded.courses.find((course) => course.id === question.courseId)?.title || "Course",
-    submitted: question.date,
-    status: question.answer ? "Responded" : question.status,
-    feedback: question.answer || "",
-    source: "learner"
-  })));
-  const learnerAssignments = workspaceEntries.flatMap(({ userId, profile, data }) => Object.entries(data.progress || {})
-    .filter(([, progress]) => progress.assignment)
-    .map(([courseId, progress]) => ({
-      id: `assignment:${userId}:${courseId}`,
-      userId,
-      courseId,
-      type: "Assignment",
-      title: progress.assignment,
-      student: profile?.full_name || profile?.email || "Learner",
-      course: loaded.courses.find((course) => course.id === courseId)?.title || "Course",
-      submitted: progress.assignmentDate || "",
-      status: progress.feedback ? "Reviewed" : "Pending review",
-      feedback: progress.feedback || "",
-      source: "learner"
-    })));
-  const learnerReferrals = workspaceEntries.flatMap(({ profile, data }) => {
-    const referral = data.referral;
-    if (!profile || !referral?.active) return [];
-    const stored = loaded.referrals.find((item) => item.email === profile.email || item.id === profile.id) || {};
-    return [{
-      id: profile.id,
-      name: profile.full_name || profile.email,
-      email: profile.email,
-      code: referral.code || "",
-      referrals: Number(referral.registrations) || 0,
-      conversions: Number(referral.conversions) || 0,
-      commission: Number(referral.commission) || 0,
-      status: stored.status || "Active",
-      source: "learner"
-    }];
-  });
-  const learnerWithdrawals = workspaceEntries.flatMap(({ profile, data }) => (data.referral?.withdrawals || []).map((request) => ({
-    ...request,
-    id: request.id,
-    partner: profile?.full_name || profile?.email || "Learner",
-    requested: request.date,
-    account: request.method,
-    ...(storedWithdrawals.get(request.id) || {}),
-    source: "learner"
-  })));
+  loaded.enrollmentRequests = [...learnerRequests.values()];
   loaded.sessions = [...loaded.sessions.filter((session) => session.source !== "learner"), ...learnerSessions];
-  loaded.reviews = [...loaded.reviews.filter((review) => review.source !== "learner"), ...learnerQuestions, ...learnerAssignments];
-  loaded.referrals = [...loaded.referrals.filter((referral) => referral.source !== "learner"), ...learnerReferrals];
-  loaded.withdrawals = [...loaded.withdrawals.filter((request) => request.source !== "learner"), ...learnerWithdrawals];
-
-  if (!remoteWorkspace) {
-    const { error } = await supabaseClient.from("admin_workspaces").upsert({ id: WORKSPACE_ID, data: loaded });
-    if (error) throw error;
-  }
+  loaded.reviews = [...loaded.reviews.filter((review) => review.source !== "learner"), ...learnerReviews];
   return loaded;
 }
-
+const seedRecordIds = {
+  students: new Set(Array.from({ length: 10 }, (_, index) => `s-${1001 + index}`)),
+  opportunityInterests: new Set(["INT-01", "INT-02"]),
+  payments: new Set(Array.from({ length: 10 }, (_, index) => `TXN-${80421 - index}`)),
+  referrals: new Set(["REF-2101", "REF-2102", "REF-2103", "REF-2104"]),
+  withdrawals: new Set(["WDR-0931", "WDR-0930", "WDR-0929"]),
+  sessions: new Set(["MNT-301", "MNT-302", "MNT-303"]),
+  reviews: new Set(["REV-401", "REV-402", "REV-403"]),
+  jobs: new Set(["JOB-501", "JOB-502", "JOB-503"]),
+  resources: new Set(["RES-701", "RES-702", "RES-703"]),
+  faqs: new Set(["FAQ-01", "FAQ-02", "FAQ-03", "FAQ-04"]),
+  testimonials: new Set(["TST-01", "TST-02"]),
+  activity: new Set(["ACT-01", "ACT-02", "ACT-03"]),
+  audit: new Set(["LOG-001"])
+};
+const seedRecordMatches = {
+  students: (item) => String(item.email || "").endsWith("@example.com"),
+  opportunityInterests: (item) => ["Amara Okafor", "Tobi Adeyemi"].includes(item.student),
+  payments: (item) => /^s-10\d{2}$/.test(item.studentId || "") && item.amount === 5000,
+  referrals: (item) => ["KEMI-LEARN", "TOBI-SKILL", "AMARA-UP", "FEMI-TECH"].includes(item.code)
+    && String(item.email || "").endsWith("@example.com"),
+  withdrawals: (item) => ["•••• 4812", "•••• 2901", "•••• 6673"].includes(item.account),
+  sessions: (item) => ["Getting started with frontend projects", "AI automation: live Q&A", "Portfolio project review"].includes(item.title),
+  reviews: (item) => ["Responsive portfolio project", "How do I structure reusable API routes?", "Automation workflow project"].includes(item.title),
+  jobs: (item) => String(item.link || "").startsWith("https://example.com/")
+    && ["Northstar Digital", "Open Canvas Studio", "Community listing"].includes(item.company),
+  resources: (item) => String(item.link || "").startsWith("https://example.com/")
+    && ["CV template for early-career developers", "Technical interview preparation guide", "Freelance application checklist"].includes(item.title),
+  faqs: (item) => ["How do I get started?", "Do I need previous experience?", "Will I receive mentorship?", "Can SKILL-UP help me secure remote jobs?"].includes(item.question),
+  testimonials: (item) => ["Amara O.", "Kemi B."].includes(item.name),
+  activity: (item) => ["Course published: UI/UX Design", "Withdrawal request submitted by Kemi Balogun", "New mentorship session scheduled"].includes(item.message),
+  audit: (item) => item.action === "Sample workspace initialized" && item.by === "Site Admin"
+};
+let removedSeedRecords = false;
+function removeSeedRecords(workspace) {
+  let removed = false;
+  Object.entries(seedRecordIds).forEach(([collection, ids]) => {
+    workspace[collection] = (workspace[collection] || []).filter((item) => {
+      if (!ids.has(item.id) || !seedRecordMatches[collection]?.(item)) return true;
+      removed = true;
+      return false;
+    });
+  });
+  return removed;
+}
 let state;
 try {
-  state = await readData();
+  const [remoteAdmin, learnerWorkspaces] = await Promise.all([
+    supabaseClient.loadWorkspace("admin"),
+    supabaseClient.loadLearnerWorkspaces()
+  ]);
+  state = await readData(remoteAdmin || initialState(), learnerWorkspaces);
+  const syllabusDefaults = new Map((window.skillUpAICourses || []).map((course) => [course.id, course]));
+  const sharedThumbnail = "https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=800&q=80";
+  const thumbnailDefaults = new Map([
+    ...syllabusDefaults,
+    ["c-ai", { thumbnail: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80" }]
+  ]);
+  let hasCourseDefaultsUpdate = false;
+  state.courses.forEach((course) => {
+    const defaults = syllabusDefaults.get(course.id);
+    const thumbnailDefault = thumbnailDefaults.get(course.id)?.thumbnail;
+    if (!defaults && !thumbnailDefault) return;
+    let updated = false;
+    if (defaults) {
+      ["introduction", "objectives", "modules"].forEach((fieldName) => {
+        if (!String(course[fieldName] || "").trim() && defaults[fieldName]) {
+          course[fieldName] = defaults[fieldName];
+          updated = true;
+        }
+      });
+    }
+    if (defaults && !Object.prototype.hasOwnProperty.call(course, "featured")) {
+      course.featured = Boolean(defaults.featured);
+      updated = true;
+    }
+    if (thumbnailDefault && (!course.thumbnail || course.thumbnail === sharedThumbnail)) {
+      course.thumbnail = thumbnailDefault;
+      updated = true;
+    }
+    hasCourseDefaultsUpdate ||= updated;
+  });
+  const hasNewCourses = state.courses.some((course) => !remoteAdmin?.courses?.some((saved) => saved.id === course.id));
+  const hasCourseCatalogUpdate = !remoteAdmin?.catalogInitialized;
+  if (!remoteAdmin || hasNewCourses || hasCourseDefaultsUpdate || hasCourseCatalogUpdate || removedSeedRecords) {
+    await supabaseClient.saveWorkspace("admin", state);
+  }
+  const remotePublic = await supabaseClient.loadWorkspace("public");
+  if (!remoteAdmin || !remotePublic || !remotePublic.catalogInitialized || hasNewCourses || hasCourseDefaultsUpdate || hasCourseCatalogUpdate || removedSeedRecords) await supabaseClient.saveWorkspace("public", publicWorkspace(state));
+  removedSeedRecords = false;
 } catch (error) {
-  mainContent.innerHTML = `<section class="panel"><div class="panel-body"><h2>Could not connect to Supabase</h2><p>${escapeHTML(error.message || "Check the database schema and project configuration, then reload.")}</p></div></section>`;
+  mainContent.innerHTML = `<section class="panel"><div class="panel-body"><h2>Could not load Supabase data</h2><p>${escapeHTML(error.message || "Check the Supabase project setup and try again.")}</p></div></section>`;
   return;
 }
 let activeView = "dashboard";
@@ -372,79 +375,107 @@ let chartRange = "week";
 let activeFilters = { search: "", status: "All" };
 let modalPreviousFocus = null;
 
-let persistQueue = Promise.resolve();
 let persistedState = JSON.parse(JSON.stringify(state));
-let persistVersion = 0;
+let persistRevision = 0;
+function publicWorkspace(workspace) {
+  return {
+    catalogInitialized: true,
+    courses: workspace.courses.filter((item) => item.status === "Published"),
+    jobs: workspace.jobs.filter((item) => item.status === "Published"),
+    resources: workspace.resources.filter((item) => item.status === "Published"),
+    announcements: workspace.announcements.filter((item) => item.status === "Published"),
+    faqs: workspace.faqs.filter((item) => item.status === "Published"),
+    testimonials: workspace.testimonials.filter((item) => item.status === "Published"),
+    siteContent: workspace.siteContent
+  };
+}
 function persist(message) {
-  const version = ++persistVersion;
-  const committedState = JSON.parse(JSON.stringify(state));
-  const snapshot = JSON.parse(JSON.stringify(committedState));
-  snapshot.students = snapshot.students.filter((student) => student.source !== "supabase");
-  delete snapshot.enrollmentRequests;
-  persistQueue = persistQueue.then(async () => {
-    const { error: workspaceError } = await supabaseClient.from("admin_workspaces").upsert({ id: WORKSPACE_ID, data: snapshot });
-    if (workspaceError) throw workspaceError;
-    const { error: coursesError } = await supabaseClient.from("courses").upsert(snapshot.courses.map((course) => ({ id: course.id, status: course.status, data: course })));
-    if (coursesError) throw coursesError;
-    const publicContent = serializePublicContent(snapshot);
-    const { error: publicContentError } = await supabaseClient.from("public_content").upsert(publicContent);
-    if (publicContentError) throw publicContentError;
-    const publicContentIds = new Set(publicContent.map((item) => item.id));
-    const { data: storedContent, error: storedContentError } = await supabaseClient.from("public_content").select("id");
-    if (storedContentError) throw storedContentError;
-    const staleContent = storedContent.filter((item) => !publicContentIds.has(item.id)).map((item) => item.id);
-    if (staleContent.length) {
-      const { error: deleteContentError } = await supabaseClient.from("public_content").delete().in("id", staleContent);
-      if (deleteContentError) throw deleteContentError;
-    }
-    const { data: storedCourses, error: storedCoursesError } = await supabaseClient.from("courses").select("id");
-    if (storedCoursesError) throw storedCoursesError;
-    const activeIds = new Set(snapshot.courses.map((course) => course.id));
-    const removedIds = storedCourses.filter((course) => !activeIds.has(course.id)).map((course) => course.id);
-    if (removedIds.length) {
-      const { error: deleteError } = await supabaseClient.from("courses").delete().in("id", removedIds);
-      if (deleteError) throw deleteError;
-    }
-  }).then(() => {
-    persistedState = committedState;
-    if (message) notify(message);
-  }).catch((error) => {
-    if (version === persistVersion) {
-      state = JSON.parse(JSON.stringify(persistedState));
+  const revision = ++persistRevision;
+  const snapshot = JSON.parse(JSON.stringify(state));
+  void supabaseClient.saveWorkspace("admin", snapshot)
+    .then(() => supabaseClient.saveWorkspace("public", publicWorkspace(snapshot)))
+    .then(() => {
+      if (revision !== persistRevision) return;
+      persistedState = snapshot;
+      if (message) notify(`${message} Synced with Supabase.`);
+    })
+    .catch((error) => {
+      if (revision !== persistRevision) return;
+      state = persistedState;
       render();
-    }
-    notify(`Supabase could not save this change: ${error.message || "Database request failed."}`, "error");
-  });
+      notify(`Could not save this change to Supabase: ${error.message}`, "error");
+    });
   return true;
 }
-
 function commit(mutator, message) {
-  const previous = JSON.stringify(state);
   mutator();
-  if (!persist(message)) {
-    state = JSON.parse(previous);
-    render();
-    return false;
-  }
+  persist(message);
   render();
   return true;
 }
 
+async function refreshDashboard() {
+  const refreshButton = mainContent.querySelector('[data-action="refresh-dashboard"]');
+  if (refreshButton) refreshButton.disabled = true;
+  try {
+    const [remoteAdmin, learnerWorkspaces] = await Promise.all([
+      supabaseClient.loadWorkspace("admin"),
+      supabaseClient.loadLearnerWorkspaces()
+    ]);
+    const refreshedState = await readData(remoteAdmin || initialState(), learnerWorkspaces);
+    const hasNewCourses = refreshedState.courses.some((course) => !remoteAdmin?.courses?.some((saved) => saved.id === course.id));
+    const hasCourseCatalogUpdate = !remoteAdmin?.catalogInitialized;
+    if (!remoteAdmin || hasNewCourses || hasCourseCatalogUpdate || removedSeedRecords) {
+      await supabaseClient.saveWorkspace("admin", refreshedState);
+    }
+    const remotePublic = await supabaseClient.loadWorkspace("public");
+    if (!remotePublic || !remotePublic.catalogInitialized || hasNewCourses || hasCourseCatalogUpdate || removedSeedRecords) {
+      await supabaseClient.saveWorkspace("public", publicWorkspace(refreshedState));
+    }
+    removedSeedRecords = false;
+    state = refreshedState;
+    persistedState = JSON.parse(JSON.stringify(refreshedState));
+    render();
+    notify("Dashboard data refreshed from Supabase.");
+  } catch (error) {
+    if (refreshButton?.isConnected) refreshButton.disabled = false;
+    notify(`Could not refresh dashboard data from Supabase: ${error.message}`, "error");
+  }
+}
+
 async function updateLearnerSession(session, remove = false) {
-  const { data: workspace, error: readError } = await supabaseClient.from("learner_workspaces").select("data").eq("user_id", session.userId).maybeSingle();
-  if (readError) throw readError;
+  const workspace = await supabaseClient.loadWorkspace(`learner:${session.userId}`);
   if (!workspace) throw new Error("The learner workspace for this session no longer exists.");
-  const learnerData = workspace.data || {};
-  const sessions = learnerData.sessions || [];
+  const sessions = workspace.sessions || [];
   const sessionIndex = sessions.findIndex((item) => item.id === session.sourceSessionId);
   if (sessionIndex < 0) throw new Error("The learner session could not be found.");
   if (remove) sessions.splice(sessionIndex, 1);
   else sessions[sessionIndex].status = "Completed";
-  learnerData.sessions = sessions;
-  const { error: saveError } = await supabaseClient.from("learner_workspaces").upsert({ user_id: session.userId, data: learnerData });
-  if (saveError) throw saveError;
+  workspace.sessions = sessions;
+  await supabaseClient.saveWorkspace(`learner:${session.userId}`, workspace);
 }
-
+async function updateLearnerEnrollment(userId, courseId, status, payment) {
+  if (!userId) return;
+  const workspace = await supabaseClient.loadWorkspace(`learner:${userId}`);
+  if (!workspace) throw new Error("The learner's Supabase workspace could not be found.");
+  workspace.enrollmentRequests = (workspace.enrollmentRequests || []).map((request) =>
+    request.course_id === courseId ? { ...request, status } : request);
+  if (payment) {
+    const purchases = workspace.purchases || [];
+    const purchase = {
+      courseId,
+      purchasedAt: payment.date,
+      amount: Number(payment.amount) || 0,
+      status: payment.status,
+      receipt: payment.id
+    };
+    const index = purchases.findIndex((item) => item.courseId === courseId);
+    if (index < 0) purchases.push(purchase);
+    else purchases[index] = { ...purchases[index], ...purchase };
+    workspace.purchases = purchases;
+  }
+  await supabaseClient.saveWorkspace(`learner:${userId}`, workspace);
+}
 function notify(message, type = "success") {
   const toast = document.createElement("div");
   toast.className = `toast${type === "error" ? " error" : ""}`;
@@ -494,7 +525,7 @@ function courseName(id) { return courseById(id)?.title || "Course unavailable"; 
 function studentName(id) { return studentById(id)?.name || "Student unavailable"; }
 
 function heading(title, description, actions = "") {
-  return `<div class="page-heading"><div><p class="heading-eyebrow">SKILL-UP ADMIN WORKSPACE</p><h1>${escapeHTML(title)}</h1><p>${description}</p></div><div class="page-actions">${actions}</div></div>`;
+  return `<div class="page-heading"><div><p class="heading-eyebrow">SKILL-UP ADMIN WORKSPACE</p><h1>${escapeHTML(title)}</h1>${description ? `<p>${description}</p>` : ""}</div><div class="page-actions">${actions}</div></div>`;
 }
 
 function tableShell(toolbar, columns, rows, emptyMessage = "Nothing to show yet.") {
@@ -502,13 +533,13 @@ function tableShell(toolbar, columns, rows, emptyMessage = "Nothing to show yet.
 }
 
 function chartValues() {
-  const count = chartRange === "day" ? 12 : chartRange === "week" ? 7 : 12;
+  const count = chartRange === "day" ? 1 : chartRange === "week" ? 7 : 12;
   const monthDates = Array.from({ length: 12 }, (_, index) => {
     const date = new Date(today.getFullYear(), today.getMonth() - (11 - index), 1);
     return date;
   });
   const labels = chartRange === "day"
-    ? ["8a", "9a", "10a", "11a", "12p", "1p", "2p", "3p", "4p", "5p", "6p", "7p"]
+    ? ["Today"]
     : chartRange === "week"
       ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
       : monthDates.map((date) => new Intl.DateTimeFormat("en-NG", { month: "short" }).format(date));
@@ -523,9 +554,7 @@ function chartValues() {
     const date = new Date(today);
     date.setDate(date.getDate() + (chartRange === "day" ? 0 : index - 6));
     if (chartRange === "day") {
-      return index === count - 1
-        ? state.payments.filter((payment) => payment.status === "Successful" && payment.date === day(0)).reduce((sum, payment) => sum + payment.amount, 0)
-        : 0;
+      return state.payments.filter((payment) => payment.status === "Successful" && payment.date === day(0)).reduce((sum, payment) => sum + payment.amount, 0);
     }
     return state.payments.filter((payment) => payment.status === "Successful" && payment.date === date.toISOString().slice(0, 10)).reduce((sum, payment) => sum + payment.amount, 0);
   });
@@ -559,26 +588,25 @@ function renderDashboard() {
   const pendingWithdrawals = state.withdrawals.filter((item) => item.status === "Pending").length;
   const successfulPayments = state.payments.filter((item) => item.status === "Successful").length;
   const statData = [
-    ["Registered learners", state.students.length, "♙", "Supabase learner profiles", ""],
+    ["Registered learners", state.students.length, "♙", "Learner accounts and workspace records", ""],
     ["Enrolled learners", enrolledStudents, "↗", "At least one approved enrollment", "coral"],
     ["Referral partners", state.referrals.length, "◎", "Registered partner accounts", "violet"],
     ["Available courses", state.courses.filter((item) => item.status === "Published").length, "▤", `${state.courses.length} total in course library`, "amber"],
-    ["Approved enrollments", successfulPayments, "⌑", "Database enrollment records", ""],
+    ["Approved enrollments", successfulPayments, "⌑", "Recorded enrollment activity", ""],
     ["Enrolled course value", money(revenue), "↗", "Not verified payment revenue", "coral"],
     ["Referral commissions", money(commission), "✳", "Recorded partner commissions", "violet"],
     ["Pending withdrawals", pendingWithdrawals, "◷", "Requests awaiting review", "amber"]
   ];
   const stats = statData.map(([label, value, icon, foot, color]) => `<article class="stat-card"><div class="stat-top"><span class="stat-label">${label}</span><span class="stat-icon ${color}">${icon}</span></div><strong class="stat-value">${value}</strong><div class="stat-foot"><span>${foot}</span></div></article>`).join("");
-  const transactions = state.payments.slice(0, 5).map((payment, index) => `<div class="activity-item">${avatar(studentName(payment.studentId), ["", "avatar-rose", "avatar-blue", "avatar-violet", "avatar-amber"][index])}<div class="activity-copy"><strong>${escapeHTML(studentName(payment.studentId))} · ${escapeHTML(courseName(payment.courseId))}</strong><small>${escapeHTML(payment.id)} · ${relativeDate(payment.date)}</small></div><span class="activity-amount">${payment.status === "Successful" ? money(payment.amount) : statusBadge(payment.status)}</span></div>`).join("");
+  const transactions = [...state.payments].sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).slice(0, 5).map((payment, index) => `<div class="activity-item">${avatar(studentName(payment.studentId), ["", "avatar-rose", "avatar-blue", "avatar-violet", "avatar-amber"][index])}<div class="activity-copy"><strong>${escapeHTML(studentName(payment.studentId))} · ${escapeHTML(courseName(payment.courseId))}</strong><small>${escapeHTML(payment.id)} · ${relativeDate(payment.date)}</small></div><span class="activity-amount">${payment.status === "Successful" ? money(payment.amount) : statusBadge(payment.status)}</span></div>`).join("");
   const registrations = [...state.students].sort((a, b) => b.joined.localeCompare(a.joined)).slice(0, 5).map((student, index) => `<div class="activity-item">${avatar(student.name, ["avatar-blue", "avatar-rose", "avatar-violet", "avatar-amber", ""][index])}<div class="activity-copy"><strong>${escapeHTML(student.name)}</strong><small>${escapeHTML(student.email)}</small></div><span class="muted">${relativeDate(student.joined)}</span></div>`).join("");
   const rangeLabel = { day: "Today", week: "This week", month: "This month" }[chartRange];
-  return `${heading("Dashboard overview", "Welcome back. Here's what's happening across your learning platform today.", `<button class="button button-soft" data-action="export-report"><span class="button-icon">↓</span> Export report</button>`)}
-    <div class="inline-note"><span>ⓘ</span><div><strong>Supabase data.</strong> Learners, courses, enrollments and published content are loaded from the database. Enrollment amounts are not payment transactions, and referral metrics require verified server-side tracking.</div></div>
+  return `${heading("Dashboard overview", `Welcome back, ${escapeHTML(adminDisplayName)}. Here's what's happening across your learning platform today.`, `<button class="button button-soft" data-action="refresh-dashboard"><span class="button-icon">↻</span> Refresh data</button><button class="button button-soft" data-action="export-report"><span class="button-icon">↓</span> Export report</button>`)}
     <section class="stats-grid" aria-label="Platform totals">${stats}</section>
     <div class="dashboard-grid">
       <section class="panel"><div class="panel-header"><div><h2>Enrollment value</h2><p>${rangeLabel} approved enrollment records · not payment revenue</p></div><div class="chart-controls" role="group" aria-label="Chart time range">${["day", "week", "month"].map((range) => `<button class="chart-range${chartRange === range ? " active" : ""}" data-range="${range}">${{ day: "Daily", week: "Weekly", month: "Monthly" }[range]}</button>`).join("")}</div></div><div class="panel-body"><div class="chart-legend"><span><i class="legend-dot"></i>Recorded enrollment value</span><span class="muted">NGN</span></div><div class="chart-wrap">${chartMarkup()}</div></div></section>
       <section class="panel"><div class="panel-header"><div><h2>Performance snapshot</h2><p>${rangeLabel} platform health</p></div></div><div class="panel-body"><div class="insights-list">
-        <div class="insight-row"><span>Approved enrollments</span><strong>${successfulPayments}</strong></div><div class="insight-row"><span>Pending enrollment requests</span><strong>${state.enrollmentRequests.filter((item) => item.status === "Pending").length}</strong></div><div class="insight-row"><span>Rejected enrollment requests</span><strong>${state.enrollmentRequests.filter((item) => item.status === "Rejected").length}</strong></div><div class="insight-row"><span>Average learner progress</span><strong>${state.students.length ? Math.round(state.students.reduce((sum, item) => sum + item.progress, 0) / state.students.length) : 0}%</strong></div><div class="insight-row"><span>Published opportunities</span><strong>${state.jobs.filter((item) => item.status === "Published").length}</strong></div></div><div class="insight-note"><b>↗</b><span>Enrollment approval records course access. Payment must be verified independently until a gateway is integrated.</span></div></div></section>
+        <div class="insight-row"><span>Approved enrollments</span><strong>${successfulPayments}</strong></div><div class="insight-row"><span>Pending enrollment requests</span><strong>${state.enrollmentRequests.filter((item) => item.status === "Pending").length}</strong></div><div class="insight-row"><span>Rejected enrollment requests</span><strong>${state.enrollmentRequests.filter((item) => item.status === "Rejected").length}</strong></div><div class="insight-row"><span>Average learner progress</span><strong>${state.students.length ? Math.round(state.students.reduce((sum, item) => sum + item.progress, 0) / state.students.length) : 0}%</strong></div></div><div class="insight-note"><b>↗</b><span>Enrollment approval records course access. Payment must be verified independently until a gateway is integrated.</span></div></div></section>
     </div>
     <div class="two-panels">
       <section class="panel"><div class="panel-header"><div><h2>Recent enrollments</h2><p>Latest approved course access records</p></div><button class="view-all" data-view="finance">View all →</button></div><div class="panel-body"><div class="activity-list">${transactions || `<div class="empty-state">No enrollments recorded yet.</div>`}</div></div></section>
@@ -591,10 +619,9 @@ function renderCourses() {
   const search = activeFilters.search.toLowerCase();
   const filtered = state.courses.filter((course) => (`${course.title} ${course.category} ${course.instructor}`).toLowerCase().includes(search)
     && (activeFilters.status === "All" || course.status === activeFilters.status));
-  const cards = filtered.map((course) => `<article class="course-admin-card"><div class="course-banner">${course.banner || course.thumbnail ? `<img src="${escapeHTML(course.banner || course.thumbnail)}" alt="" loading="lazy">` : ""}${statusBadge(course.status)}</div><div class="course-card-body"><div class="course-card-meta"><span>${escapeHTML(course.category)}</span><strong>${money(course.price)}</strong></div><h3>${escapeHTML(course.title)}</h3><p>${escapeHTML(course.description)}</p><div class="course-card-stats"><span>Enrolled <strong>${course.enrolled}</strong></span><span>Avg. progress <strong>${course.completion}%</strong></span></div><div class="course-card-meta"><span>Instructor</span><strong>${escapeHTML(course.instructor)}</strong></div><div class="course-card-actions"><button class="text-button" data-action="course-details" data-id="${course.id}">Details</button><button class="text-button" data-action="edit-course" data-id="${course.id}">Edit</button><button class="text-button" data-action="toggle-course" data-id="${course.id}">${course.status === "Published" ? "Unpublish" : "Publish"}</button><button class="text-button danger" data-action="archive-course" data-id="${course.id}">${course.status === "Archived" ? "Delete" : "Archive"}</button></div></div></article>`).join("");
+  const cards = filtered.map((course) => `<article class="course-admin-card"><div class="course-banner">${course.banner || course.thumbnail ? `<img src="${escapeHTML(course.banner || course.thumbnail)}" alt="" loading="lazy">` : ""}${statusBadge(course.status)}</div><div class="course-card-body"><div class="course-card-meta"><span>${escapeHTML(course.category)}</span><strong>${money(course.price)}</strong></div><h3>${escapeHTML(course.title)}</h3><p>${escapeHTML(course.description)}</p><div class="course-card-stats"><span>Enrolled <strong>${course.enrolled}</strong></span><span>Avg. progress <strong>${course.completion}%</strong></span></div><div class="course-card-meta"><span>Instructor</span><strong>${escapeHTML(course.instructor)}</strong></div><div class="course-featured-status${course.featured ? " is-featured" : ""}">${course.featured ? "Shown on landing page" : "Explore courses only"}</div><div class="course-card-actions"><button class="text-button" data-action="course-details" data-id="${course.id}">Details</button><button class="text-button" data-action="edit-course" data-id="${course.id}">Edit</button><button class="text-button" data-action="toggle-course" data-id="${course.id}">${course.status === "Published" ? "Unpublish" : "Publish"}</button><button class="text-button danger" data-action="archive-course" data-id="${course.id}">${course.status === "Archived" ? "Delete" : "Archive"}</button></div></div></article>`).join("");
   const toolbar = `<div class="toolbar-left"><div class="search-field"><input type="search" data-filter="search" placeholder="Search courses…" value="${escapeHTML(activeFilters.search)}" aria-label="Search courses"></div><select class="field-control" data-filter="status" aria-label="Filter course status"><option>All</option>${["Published", "Draft", "Archived"].map((item) => `<option${activeFilters.status === item ? " selected" : ""}>${item}</option>`).join("")}</select></div><div class="toolbar-right"><span class="muted">${filtered.length} courses shown · ${categories.length} categories</span></div>`;
   return `${heading("Course management", "Create and organize your courses, learning materials, instructors and publishing status.", `<button class="button button-soft" data-action="add-category"><span class="button-icon">＋</span> Add category</button><button class="button button-primary" data-action="add-course"><span class="button-icon">＋</span> Create course</button>`)}
-    <div class="inline-note"><span>ⓘ</span><div>Course changes are saved in this browser only. Uploads are stored as local data and are not hosted or available to other users.</div></div>
     <div class="panel data-panel"><div class="table-toolbar">${toolbar}</div></div>
     <div class="course-list">${cards || `<div class="panel empty-state"><strong>No matching courses</strong>Try a different search or create a course.</div>`}</div>`;
 }
@@ -603,10 +630,10 @@ function renderStudents() {
   const search = activeFilters.search.toLowerCase();
   const filtered = state.students.filter((student) => (`${student.name} ${student.email} ${student.id}`).toLowerCase().includes(search)
     && (activeFilters.status === "All" || student.status === activeFilters.status));
-  const rows = filtered.map((student) => `<tr><td><div class="cell-primary">${avatar(student.name)}<span><strong>${escapeHTML(student.name)}</strong><small>Supabase account</small></span></div></td><td>${escapeHTML(student.email)}</td><td>${dateLabel(student.joined)}</td><td>${student.courses.length}</td><td><strong>${student.progress}%</strong></td><td>${statusBadge(student.status)}</td><td><button class="text-button" data-action="student-details" data-id="${escapeHTML(student.id)}">Profile</button></td></tr>`).join("");
+  const rows = filtered.map((student) => `<tr><td><div class="cell-primary">${avatar(student.name)}<span><strong>${escapeHTML(student.name)}</strong><small>${student.source === "supabase" ? "Registered account" : "Sample record"}</small></span></div></td><td>${escapeHTML(student.email)}</td><td>${dateLabel(student.joined)}</td><td>${student.courses.length}</td><td><strong>${student.progress}%</strong></td><td>${statusBadge(student.status)}</td><td><button class="text-button" data-action="student-details" data-id="${escapeHTML(student.id)}">Profile</button></td></tr>`).join("");
   const toolbar = `<div class="toolbar-left"><div class="search-field"><input type="search" data-filter="search" placeholder="Search students…" value="${escapeHTML(activeFilters.search)}" aria-label="Search students"></div><select class="field-control" data-filter="status" aria-label="Filter student status"><option>All</option><option${activeFilters.status === "Registered" ? " selected" : ""}>Registered</option></select></div><div class="toolbar-right"><button class="button button-soft button-small" data-action="export-students">↓ Export CSV</button></div>`;
-  return `${heading("Student management", "Review learner profiles, approved enrollments and progress loaded from Supabase.", `<span class="button button-soft">${state.students.length} records</span>`)}
-    <div class="summary-cards"><div class="summary-card"><span>Registered learners</span><strong>${state.students.length}</strong><small>Supabase learner profiles</small></div><div class="summary-card"><span>Enrolled learners</span><strong>${state.students.filter((student) => student.courses.length > 0).length}</strong><small>At least one approved enrollment</small></div><div class="summary-card"><span>Average learning progress</span><strong>${state.students.length ? Math.round(state.students.reduce((sum, student) => sum + student.progress, 0) / state.students.length) : 0}%</strong><small>Calculated from learner workspaces</small></div></div>
+  return `${heading("Student management", "Review registered accounts, enrollment records and progress synced with Supabase.", `<span class="button button-soft">${state.students.length} records</span>`)}
+    <div class="summary-cards"><div class="summary-card"><span>Learner profiles</span><strong>${state.students.length}</strong><small>Accounts and learner records</small></div><div class="summary-card"><span>Enrolled learners</span><strong>${state.students.filter((student) => student.courses.length > 0).length}</strong><small>At least one approved enrollment</small></div><div class="summary-card"><span>Average learning progress</span><strong>${state.students.length ? Math.round(state.students.reduce((sum, student) => sum + student.progress, 0) / state.students.length) : 0}%</strong><small>Calculated from learner records</small></div></div>
     ${tableShell(toolbar, ["Student", "Email", "Joined", "Courses", "Progress", "Status", "Actions"], rows, "No students match these filters.")}`;
 }
 
@@ -637,7 +664,6 @@ function renderReferrals() {
   const campaigns = state.campaigns.map((campaign) => `<tr><td><strong>${escapeHTML(campaign.name)}</strong><small class="muted"><br>${escapeHTML(campaign.id)}</small></td><td>${campaign.rate}%</td><td>${dateLabel(campaign.createdAt)}</td><td>${statusBadge(campaign.status)}</td><td><div class="table-actions"><button class="text-button" data-action="toggle-campaign" data-id="${campaign.id}">${campaign.status === "Active" ? "Pause" : "Activate"}</button><button class="text-button danger" data-action="delete-campaign" data-id="${campaign.id}">Delete</button></div></td></tr>`).join("");
   const totalCommission = state.referrals.reduce((sum, referral) => sum + referral.commission, 0);
   return `${heading("Referral management", "Monitor partner referrals, commission totals and withdrawal requests.", `<button class="button button-primary" data-action="referral-campaign"><span class="button-icon">＋</span> New campaign</button>`)}
-    <div class="inline-note"><span>ⓘ</span><div>Commission approvals, adjustments and withdrawals are local demonstrations only. Verify partner identity and qualifying purchases before using a real payout system.</div></div>
     <div class="summary-cards"><div class="summary-card"><span>Referral partners</span><strong>${state.referrals.length}</strong><small>Registered demo accounts</small></div><div class="summary-card"><span>Successful referrals</span><strong>${state.referrals.reduce((sum, referral) => sum + referral.conversions, 0)}</strong><small>Sample course conversions</small></div><div class="summary-card"><span>Commissions recorded</span><strong>${money(totalCommission)}</strong><small>Unverified demo balance</small></div></div>
     <section class="panel data-panel"><div class="panel-header"><div><h2>Referral partners & leaderboard</h2><p>Ranked by successful sample conversions</p></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Partner</th><th>Referral code</th><th>Clicks</th><th>Conversions</th><th>Commission</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows || `<tr><td class="table-empty" colspan="7">No referral partners yet.</td></tr>`}</tbody></table></div></section>
     <section class="panel data-panel"><div class="panel-header"><div><h2>Referral campaigns</h2><p>Local campaign rules and commission rate</p></div><span class="muted">Current default: ${state.settings.referralRate}%</span></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Campaign</th><th>Commission</th><th>Created</th><th>Status</th><th>Actions</th></tr></thead><tbody>${campaigns || `<tr><td class="table-empty" colspan="5">No campaigns created. Add one to configure the default rate.</td></tr>`}</tbody></table></div></section>
@@ -649,7 +675,6 @@ function renderMentorship() {
   const reviewRows = state.reviews.map((review) => `<tr><td>${statusBadge(review.type)}</td><td><strong>${escapeHTML(review.title)}</strong><small class="muted"><br>${escapeHTML(review.course)}</small></td><td>${escapeHTML(review.student)}</td><td>${dateLabel(review.submitted)}</td><td>${statusBadge(review.status)}</td><td><button class="text-button" data-action="review-submission" data-id="${review.id}">${review.status === "Reviewed" || review.status === "Responded" ? "View feedback" : review.type === "Question" ? "Respond" : "Review"}</button></td></tr>`).join("");
   const toolbar = `<div class="toolbar-left"><span class="muted">${state.sessions.filter((session) => session.status === "Scheduled").length} scheduled sessions · ${state.sessions.filter((session) => session.status === "Completed").length} completed</span></div>`;
   return `${heading("Mentorship management", "Schedule mentor sessions, live training and assignment-review appointments.", `<button class="button button-primary" data-action="add-session"><span class="button-icon">＋</span> Schedule session</button>`)}
-    <div class="inline-note"><span>ⓘ</span><div>Learner session requests, questions and assignment submissions are loaded from Supabase. Responses are saved back to the learner workspace; email and live-call services are not configured.</div></div>
     ${tableShell(toolbar, ["Session", "Mentor", "Student / group", "Date & time", "Session link", "Status", "Actions"], rows, "No mentorship sessions scheduled.")}
     <section class="panel data-panel"><div class="panel-header"><div><h2>Student questions & assignment reviews</h2><p>Respond to learner questions and review practical submissions</p></div><button class="button button-soft button-small" data-action="add-review">＋ Add submission</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Type</th><th>Submission</th><th>Student</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead><tbody>${reviewRows || `<tr><td class="table-empty" colspan="6">No submissions waiting for review.</td></tr>`}</tbody></table></div></section>`;
 }
@@ -671,31 +696,25 @@ function renderContent() {
   const recentAnnouncements = state.announcements.slice(0, 5).map((item) => `<div class="activity-item"><span class="stat-icon">✉</span><div class="activity-copy"><strong>${escapeHTML(item.title)}</strong><small>${dateLabel(item.date)} · ${escapeHTML(item.status)}</small><p>${escapeHTML(item.body)}</p></div></div>`).join("");
   const testimonials = state.testimonials.map((item) => `<article class="faq-content-item"><strong>${escapeHTML(item.name)} · ${escapeHTML(item.role)}</strong><p>“${escapeHTML(item.quote)}”</p><div class="table-actions"><button class="text-button" data-action="edit-testimonial" data-id="${item.id}">Edit</button><button class="text-button" data-action="toggle-testimonial" data-id="${item.id}">${item.status === "Published" ? "Unpublish" : "Publish"}</button><button class="text-button danger" data-action="delete-testimonial" data-id="${item.id}">Delete</button>${statusBadge(item.status)}</div></article>`).join("");
   return `${heading("Website & content", "Update website FAQs and draft platform announcements.", `<button class="button button-primary" data-action="add-faq"><span class="button-icon">＋</span> Add FAQ</button>`)}
-    <div class="inline-note"><span>ⓘ</span><div>Published FAQs and announcements sync to the public website through Supabase. Email delivery is not connected.</div></div>
-    <div class="content-grid"><section class="panel"><div class="panel-header"><div><h2>Homepage content</h2><p>Hero, banner and contact information</p></div><button class="button button-soft button-small" data-action="edit-homepage">Edit content</button></div><div class="panel-body"><div class="detail-block"><h3>Hero headline</h3><p>${escapeHTML(state.siteContent.headline)}</p></div><div class="detail-block"><h3>Announcement banner</h3><p>${escapeHTML(state.siteContent.announcement || "No announcement banner.")}</p></div><div class="detail-block"><h3>Promotional banner image</h3><p>${escapeHTML(state.siteContent.bannerUrl || "No promotional banner image.")}</p></div><div class="detail-block"><h3>Contact email</h3><p>${escapeHTML(state.siteContent.contactEmail)}</p></div><div class="detail-block"><h3>Privacy policy & terms</h3><p>${state.siteContent.privacyPolicy || state.siteContent.terms ? "Policy content saved to Supabase." : "No legal page content saved."}</p><div class="table-actions"><button class="text-button" data-action="edit-legal">Edit legal pages</button></div></div></div></section>
+    <div class="inline-note"><span>ⓘ</span><div>Published FAQs and announcements sync to Supabase and appear on the public website after it is refreshed.</div></div>
+    <div class="content-grid">    <section class="panel"><div class="panel-header"><div><h2>Homepage content</h2><p>Hero, banner and contact information</p></div><button class="button button-soft button-small" data-action="edit-homepage">Edit content</button></div><div class="panel-body"><div class="detail-block"><h3>Hero headline</h3><p>${escapeHTML(state.siteContent.headline)}</p></div><div class="detail-block"><h3>Announcement banner</h3><p>${escapeHTML(state.siteContent.announcement || "No announcement banner.")}</p></div><div class="detail-block"><h3>Promotional banner image</h3><p>${escapeHTML(state.siteContent.bannerUrl || "No promotional banner image.")}</p></div><div class="detail-block"><h3>Contact email</h3><p>${escapeHTML(state.siteContent.contactEmail)}</p></div><div class="detail-block"><h3>Privacy policy & terms</h3><p>${state.siteContent.privacyPolicy || state.siteContent.terms ? "Policy content saved to Supabase." : "No legal page content saved."}</p><div class="table-actions"><button class="text-button" data-action="edit-legal">Edit legal pages</button></div></div></div></section>
     <section class="panel"><div class="panel-header"><div><h2>Frequently asked questions</h2><p>${state.faqs.length} content items</p></div><button class="button button-soft button-small" data-action="add-faq">＋ Add FAQ</button></div><div class="panel-body">${faqRows || `<div class="empty-state">No FAQs have been added.</div>`}</div></section>
     <section class="panel"><div class="panel-header"><div><h2>Testimonials</h2><p>Manage learner stories and publishing status</p></div><button class="button button-soft button-small" data-action="add-testimonial">＋ Add testimonial</button></div><div class="panel-body">${testimonials || `<div class="empty-state">No testimonials have been added.</div>`}</div></section>
     <section class="panel"><div class="panel-header"><div><h2>Announcements</h2><p>Published notices on the website; no email is sent</p></div><button class="button button-soft button-small" data-action="announcement">＋ Publish</button></div><div class="panel-body"><div class="activity-list">${recentAnnouncements || `<div class="empty-state">No announcements published.</div>`}</div></div></section></div>`;
 }
 
 function renderSettings() {
-  const admins = state.admins.map((admin) => `<tr><td><strong>${escapeHTML(admin.name)}</strong><small class="muted"><br>${escapeHTML(admin.email)}</small></td><td>${escapeHTML(admin.role)}</td><td>${statusBadge(admin.status)}</td></tr>`).join("");
   const audit = state.audit.slice(0, 8).map((item) => `<div class="activity-item"><span class="stat-icon violet">◷</span><div class="activity-copy"><strong>${escapeHTML(item.action)}</strong><small>${escapeHTML(item.by)} · ${dateLabel(item.date)}</small></div></div>`).join("");
-  return `${heading("Settings & security", "Review database-backed administrator roles and recent platform changes.")}
-    <div class="inline-note"><span>ⓘ</span><div><strong>Supabase access control is active.</strong> Administrator roles are assigned in Supabase and are not created or removed from this dashboard. Never store service-role keys or passwords in the browser.</div></div>
+  return `${heading("Settings & security", "")}
     <div class="settings-grid">
-      <section class="settings-card"><h2>Platform services</h2><p>Application data and published content are stored in Supabase. External services require their own configuration.</p>
-        <div class="setting-row"><div><strong>Course enrollment</strong><small>Admin approval after independent payment verification</small></div>${statusBadge("Database-backed")}</div>
-        <div class="setting-row"><div><strong>Online payments</strong><small>No payment provider is configured</small></div>${statusBadge("Not connected")}</div>
-        <div class="setting-row"><div><strong>Email notifications</strong><small>Supabase Auth email settings apply to account messages only</small></div>${statusBadge("Limited")}</div>
+      <section class="settings-card"><h2>Connected services</h2><p>Platform profiles and workspace data are stored in Supabase. No payment or email services are connected.</p>
+        <div class="setting-row"><div><strong>Course enrollment</strong><small>Enrollment requests and approvals sync to Supabase</small></div>${statusBadge("Supabase")}</div>
+        <div class="setting-row"><div><strong>Online payments</strong><small>No payment provider is connected</small></div>${statusBadge("Not connected")}</div>
+        <div class="setting-row"><div><strong>Email notifications</strong><small>No email provider is connected</small></div>${statusBadge("Not connected")}</div>
       </section>
-      <section class="settings-card"><h2>Administrator accounts</h2><p>Accounts and roles are read from Supabase profiles. Promote an existing account in Supabase SQL Editor.</p>
-        <div class="table-wrap"><table class="data-table"><thead><tr><th>Administrator</th><th>Role</th><th>Status</th></tr></thead><tbody>${admins || `<tr><td class="table-empty" colspan="3">No administrator profiles found.</td></tr>`}</tbody></table></div>
-      </section>
-      <section class="settings-card"><h2>Recent activity</h2><p>Recent administrative changes stored with the Supabase workspace.</p><div class="activity-list">${audit || `<div class="empty-state">No activity recorded yet.</div>`}</div></section>
+      <section class="settings-card"><h2>Recent activity</h2><p>Administrative changes synced to Supabase.</p><div class="activity-list">${audit || `<div class="empty-state">No activity recorded yet.</div>`}</div></section>
     </div>`;
 }
-
 function render() {
   document.querySelector("#current-page").textContent = pageNames[activeView];
   navButtons.forEach((button) => {
@@ -712,8 +731,6 @@ function render() {
     finance: renderFinance,
     referrals: renderReferrals,
     mentorship: renderMentorship,
-    careers: renderCareers,
-    content: renderContent,
     settings: renderSettings
   })[activeView]();
 }
@@ -747,6 +764,9 @@ function closeModal() {
 
 function field(label, name, value = "", options = {}) {
   const { type = "text", full = false, required = false, placeholder = "", help = "", choices = [], rows = 4, min, max, step } = options;
+  if (type === "checkbox") {
+    return `<div class="form-field${full ? " full" : ""} checkbox-field"><label for="field-${name}"><input id="field-${name}" name="${name}" type="checkbox" value="true"${value ? " checked" : ""}><span>${label}</span></label>${help ? `<span class="help-text">${help}</span>` : ""}</div>`;
+  }
   const labelMarkup = `<label for="field-${name}">${label}${required ? " *" : ""}</label>`;
   let input;
   if (type === "select") {
@@ -770,10 +790,13 @@ function courseForm(course = {}) {
     field("Price (NGN)", "price", course.price ?? 5000, { type: "number", min: 0, required: true }),
     field("Instructor", "instructor", course.instructor || "", { required: true }),
     field("Status", "status", course.status || "Draft", { type: "select", choices: ["Draft", "Published"] }),
+    field("Show this course on the landing page", "featured", Boolean(course.featured), { type: "checkbox", full: true, help: "Featured courses appear on the public homepage. All published courses remain in Explore courses." }),
     field("Thumbnail image", "thumbnailFile", "", { type: "file", full: true, help: "Optional image upload, stored as a small data URL in this browser. Maximum 1 MB." }),
     field("Thumbnail URL", "thumbnail", course.thumbnail || "", { type: "url", full: true, placeholder: "https://…" }),
     field("Banner image URL", "banner", course.banner || "", { type: "url", full: true, placeholder: "https://…" }),
     field("Course description", "description", course.description || "", { type: "textarea", full: true, required: true, rows: 3 }),
+    field("Introduction", "introduction", course.introduction || "", { type: "textarea", full: true, rows: 3 }),
+    field("Learning objectives", "objectives", course.objectives || "", { type: "textarea", full: true, rows: 4, placeholder: "One objective per line" }),
     field("Modules and lessons", "modules", course.modules || "", { type: "textarea", full: true, rows: 4, placeholder: "One module or lesson per line" }),
     field("Assignments", "assignments", course.assignments || "", { type: "textarea", full: true, rows: 2, placeholder: "One assignment per line" }),
     field("Quizzes", "quizzes", course.quizzes || "", { type: "textarea", full: true, rows: 2, placeholder: "One quiz per line" }),
@@ -793,8 +816,9 @@ function studentDetails(student) {
 }
 
 function courseDetails(course) {
+  const objectives = (course.objectives || "").split("\n").filter(Boolean).map((item) => `<div class="insight-row"><span>${escapeHTML(item)}</span><strong>Objective</strong></div>`).join("");
   const lessons = (course.modules || "").split("\n").filter(Boolean).map((item) => `<div class="insight-row"><span>${escapeHTML(item)}</span><strong>Lesson</strong></div>`).join("");
-  openModal("Course overview", `<div class="detail-grid"><div class="detail-cell"><span>Category</span><strong>${escapeHTML(course.category)}</strong></div><div class="detail-cell"><span>Price</span><strong>${money(course.price)}</strong></div><div class="detail-cell"><span>Instructor</span><strong>${escapeHTML(course.instructor)}</strong></div><div class="detail-cell"><span>Publishing status</span><strong>${escapeHTML(course.status)}</strong></div><div class="detail-cell"><span>Enrolled students</span><strong>${course.enrolled}</strong></div><div class="detail-cell"><span>Average progress</span><strong>${course.completion}%</strong></div></div><div class="detail-block"><h3>Description</h3><p>${escapeHTML(course.description)}</p></div><div class="detail-block"><h3>Modules & lessons</h3>${lessons || `<p>No modules added.</p>`}</div><div class="detail-block"><h3>Assignments</h3><p>${escapeHTML(course.assignments || "No assignments added.")}</p></div><div class="detail-block"><h3>Quizzes</h3><p>${escapeHTML(course.quizzes || "No quizzes added.")}</p></div><div class="detail-block"><h3>Completion requirements</h3><p>${escapeHTML(course.requirements || "No completion requirements set.")}</p></div><div class="detail-block"><h3>Materials and links</h3><p>${escapeHTML(course.materials || "No resource links added.")}</p></div>`);
+  openModal("Course overview", `<div class="detail-grid"><div class="detail-cell"><span>Category</span><strong>${escapeHTML(course.category)}</strong></div><div class="detail-cell"><span>Price</span><strong>${money(course.price)}</strong></div><div class="detail-cell"><span>Instructor</span><strong>${escapeHTML(course.instructor)}</strong></div><div class="detail-cell"><span>Publishing status</span><strong>${escapeHTML(course.status)}</strong></div><div class="detail-cell"><span>Enrolled students</span><strong>${course.enrolled}</strong></div><div class="detail-cell"><span>Average progress</span><strong>${course.completion}%</strong></div></div><div class="detail-block"><h3>Introduction</h3><p>${escapeHTML(course.introduction || course.description)}</p></div><div class="detail-block"><h3>Description</h3><p>${escapeHTML(course.description)}</p></div><div class="detail-block"><h3>Learning objectives</h3>${objectives || `<p>No learning objectives added.</p>`}</div><div class="detail-block"><h3>Modules & lessons</h3>${lessons || `<p>No modules added.</p>`}</div><div class="detail-block"><h3>Assignments</h3><p>${escapeHTML(course.assignments || "No assignments added.")}</p></div><div class="detail-block"><h3>Quizzes</h3><p>${escapeHTML(course.quizzes || "No quizzes added.")}</p></div><div class="detail-block"><h3>Completion requirements</h3><p>${escapeHTML(course.requirements || "No completion requirements set.")}</p></div><div class="detail-block"><h3>Materials and links</h3><p>${escapeHTML(course.materials || "No resource links added.")}</p></div>`);
 }
 
 function addAudit(action) {
@@ -833,6 +857,7 @@ async function handleAction(action, id) {
   const referral = state.referrals.find((item) => item.id === id);
 
   switch (action) {
+    case "refresh-dashboard": refreshDashboard(); break;
     case "add-course": formModal("Create a course", "course", "", courseForm(), "Create course"); break;
     case "add-category": formModal("Add course category", "category", "", field("Category name", "name", "", { required: true, full: true }), "Add category"); break;
     case "edit-course": if (course) formModal("Edit course", "course", id, courseForm(course)); break;
@@ -844,28 +869,30 @@ async function handleAction(action, id) {
       if (course?.status === "Archived" && state.payments.some((item) => item.courseId === id)) {
         notify("This course has enrollment records and cannot be deleted. Keep it archived to preserve learner data.", "error");
       } else if (course && confirmAction(course.status === "Archived" ? "Permanently delete this archived course? This cannot be undone." : "Archive this course? Existing learner enrollments will be preserved.")) {
-        if (course.status === "Archived") commit(() => { state.courses = state.courses.filter((item) => item.id !== id); addAudit(`Course removed: ${course.title}`); }, "Course removed from Supabase.");
+        if (course.status === "Archived") commit(() => { state.courses = state.courses.filter((item) => item.id !== id); addAudit(`Course removed: ${course.title}`); }, "Course removed from this browser.");
         else commit(() => { course.status = "Archived"; addAudit(`Course archived: ${course.title}`); }, "Course archived.");
       }
       break;
     case "student-details": if (student) studentDetails(student); break;
     case "refund-payment":
       if (payment && confirmAction(`Mark this enrollment as refunded? This revokes course access but does not process a payment refund.`)) {
-        const { error } = await supabaseClient.from("enrollments").update({ status: "Refunded" }).eq("user_id", payment.userId).eq("course_id", payment.courseId);
-        if (error) { notify(`Could not update the enrollment: ${error.message}`, "error"); break; }
-        commit(() => { payment.status = "Refunded"; addAudit(`Enrollment marked refunded: ${payment.id}`); }, "Enrollment status updated. No payment refund was processed.");
+        const saved = commit(() => {
+          payment.status = "Refunded";
+          addAudit(`Enrollment marked refunded: ${payment.id}`);
+        }, "Enrollment status updated. No payment refund was processed.");
+        if (saved) {
+          try { await updateLearnerEnrollment(payment.userId, payment.courseId, "Refunded", payment); }
+          catch (error) { notify(`Enrollment updated, but learner access could not be synced: ${error.message}`, "error"); }
+        }
       }
       break;
     case "approve-enrollment-request":
       if (enrollmentRequest?.status === "Pending" && confirmAction(`Confirm that you independently verified payment for ${enrollmentRequest.student}'s ${enrollmentRequest.course} request? This grants course access but does not process a payment.`)) {
-        const { data: approved, error } = await supabaseClient.rpc("approve_enrollment_request", { request_id: enrollmentRequest.id });
-        if (error) { notify(`Could not approve enrollment: ${error.message}`, "error"); break; }
-        if (!approved) { notify("This request is no longer pending. Reload the finance page.", "error"); break; }
         const course = state.courses.find((item) => item.id === enrollmentRequest.course_id);
         const paymentRecord = {
-          id: `MANUAL-${enrollmentRequest.id.slice(0, 8)}`,
-          userId: enrollmentRequest.user_id,
-          studentId: enrollmentRequest.user_id,
+          id: `MANUAL-${enrollmentRequest.course_id}-${Date.now()}`,
+          userId: enrollmentRequest.user_id || "local-learner",
+          studentId: enrollmentRequest.user_id || "local-learner",
           courseId: enrollmentRequest.course_id,
           amount: Number(course?.price) || 0,
           fee: 0,
@@ -873,33 +900,33 @@ async function handleAction(action, id) {
           date: day(0),
           method: "Manual verification"
         };
-        commit(() => {
+        const saved = commit(() => {
           enrollmentRequest.status = "Approved";
           enrollmentRequest.reviewed_at = new Date().toISOString();
           const existingPayment = state.payments.find((item) => item.userId === paymentRecord.userId && item.courseId === paymentRecord.courseId);
           if (existingPayment) Object.assign(existingPayment, paymentRecord);
           else state.payments.unshift(paymentRecord);
-          const learner = state.students.find((item) => item.id === enrollmentRequest.user_id);
+          const learner = state.students.find((item) => item.id === paymentRecord.studentId);
           if (learner && !learner.courses.includes(enrollmentRequest.course_id)) learner.courses.push(enrollmentRequest.course_id);
           addAudit(`Enrollment approved after manual payment verification: ${enrollmentRequest.student} · ${enrollmentRequest.course}`);
         }, "Enrollment approved and course access granted. No payment was processed.");
+        if (saved) {
+          try { await updateLearnerEnrollment(paymentRecord.userId, paymentRecord.courseId, "Approved", paymentRecord); }
+          catch (error) { notify(`Enrollment approved, but learner access could not be synced: ${error.message}`, "error"); }
+        }
       }
       break;
     case "reject-enrollment-request":
       if (enrollmentRequest?.status === "Pending" && confirmAction(`Reject ${enrollmentRequest.student}'s request for ${enrollmentRequest.course}?`)) {
-        const { data: rejected, error } = await supabaseClient.from("enrollment_requests")
-          .update({ status: "Rejected", reviewed_at: new Date().toISOString() })
-          .eq("id", enrollmentRequest.id)
-          .eq("status", "Pending")
-          .select("id")
-          .maybeSingle();
-        if (error) { notify(`Could not reject enrollment request: ${error.message}`, "error"); break; }
-        if (!rejected) { notify("This request is no longer pending. Reload the finance page.", "error"); break; }
-        commit(() => {
+        const saved = commit(() => {
           enrollmentRequest.status = "Rejected";
           enrollmentRequest.reviewed_at = new Date().toISOString();
           addAudit(`Enrollment request rejected: ${enrollmentRequest.student} · ${enrollmentRequest.course}`);
         }, "Enrollment request rejected. The learner can submit a new request.");
+        if (saved) {
+          try { await updateLearnerEnrollment(enrollmentRequest.user_id || enrollmentRequest.studentId, enrollmentRequest.course_id, "Rejected"); }
+          catch (error) { notify(`Request rejected, but learner data could not be synced: ${error.message}`, "error"); }
+        }
       }
       break;
     case "export-payments":
@@ -913,10 +940,10 @@ async function handleAction(action, id) {
       break;
     case "approve-withdrawal":
     case "reject-withdrawal":
-      if (withdrawal && confirmAction(`${action === "approve-withdrawal" ? "Approve" : "Reject"} ${withdrawal.id} in local demo data? No payout will be made.`)) commit(() => { withdrawal.status = action === "approve-withdrawal" ? "Approved" : "Rejected"; addAudit(`Demo withdrawal ${withdrawal.status.toLowerCase()}: ${withdrawal.id}`); }, `Withdrawal marked ${withdrawal.status.toLowerCase()} in local records only.`);
+      if (withdrawal && confirmAction(`${action === "approve-withdrawal" ? "Approve" : "Reject"} ${withdrawal.id}? No payout will be made.`)) commit(() => { withdrawal.status = action === "approve-withdrawal" ? "Approved" : "Rejected"; addAudit(`Demo withdrawal ${withdrawal.status.toLowerCase()}: ${withdrawal.id}`); }, `Withdrawal marked ${withdrawal.status.toLowerCase()} in Supabase.`);
       break;
     case "referral-details":
-      if (referral) openModal("Referral partner", `<div class="detail-grid"><div class="detail-cell"><span>Partner</span><strong>${escapeHTML(referral.name)}</strong></div><div class="detail-cell"><span>Email</span><strong>${escapeHTML(referral.email)}</strong></div><div class="detail-cell"><span>Referral code</span><strong>${escapeHTML(referral.code)}</strong></div><div class="detail-cell"><span>Conversions</span><strong>${referral.conversions}</strong></div><div class="detail-cell"><span>Referral visits</span><strong>${referral.referrals}</strong></div><div class="detail-cell"><span>Commission</span><strong>${money(referral.commission)}</strong></div></div><div class="detail-block"><h3>Campaigns & activity</h3><p>Campaign attribution and suspicious activity checks need verified server-side event data. No live tracking is connected to this local demo.</p></div>`);
+      if (referral) openModal("Referral partner", `<div class="detail-grid"><div class="detail-cell"><span>Partner</span><strong>${escapeHTML(referral.name)}</strong></div><div class="detail-cell"><span>Email</span><strong>${escapeHTML(referral.email)}</strong></div><div class="detail-cell"><span>Referral code</span><strong>${escapeHTML(referral.code)}</strong></div><div class="detail-cell"><span>Conversions</span><strong>${referral.conversions}</strong></div><div class="detail-cell"><span>Referral visits</span><strong>${referral.referrals}</strong></div><div class="detail-cell"><span>Commission</span><strong>${money(referral.commission)}</strong></div></div><div class="detail-block"><h3>Campaigns & activity</h3><p>Campaign attribution and referral activity are not connected.</p></div>`);
       break;
     case "adjust-commission":
       if (referral) formModal("Adjust demo commission", "commission", id, field("Adjustment amount (NGN)", "amount", 0, { type: "number", required: true }) + field("Reason", "reason", "", { full: true, required: true, placeholder: "Explain the adjustment" }), "Record adjustment");
@@ -931,7 +958,7 @@ async function handleAction(action, id) {
     }
     case "delete-campaign": {
       const campaign = state.campaigns.find((item) => item.id === id);
-      if (campaign && confirmAction(`Delete referral campaign "${campaign.name}" from local data?`)) commit(() => { state.campaigns = state.campaigns.filter((item) => item.id !== id); addAudit(`Referral campaign deleted: ${campaign.name}`); }, "Campaign deleted.");
+      if (campaign && confirmAction(`Delete referral campaign "${campaign.name}"?`)) commit(() => { state.campaigns = state.campaigns.filter((item) => item.id !== id); addAudit(`Referral campaign deleted: ${campaign.name}`); }, "Campaign deleted.");
       break;
     }
     case "add-session": formModal("Schedule mentorship session", "session", "", sessionForm(), "Schedule session"); break;
@@ -966,7 +993,7 @@ async function handleAction(action, id) {
       if (job) commit(() => { job.status = job.status === "Published" ? "Draft" : "Published"; addAudit(`Opportunity ${job.status.toLowerCase()}: ${job.title}`); }, `Opportunity ${job.status.toLowerCase()}.`);
       break;
     case "delete-job":
-      if (job && confirmAction(`Delete "${job.title}" from local demo records?`)) commit(() => { state.jobs = state.jobs.filter((item) => item.id !== id); addAudit(`Opportunity deleted: ${job.title}`); }, "Opportunity deleted.");
+      if (job && confirmAction(`Delete "${job.title}"?`)) commit(() => { state.jobs = state.jobs.filter((item) => item.id !== id); addAudit(`Opportunity deleted: ${job.title}`); }, "Opportunity deleted.");
       break;
     case "add-resource": formModal("Add career resource", "resource", "", resourceForm(), "Save resource"); break;
     case "edit-resource": {
@@ -981,7 +1008,7 @@ async function handleAction(action, id) {
     }
     case "delete-resource": {
       const resource = state.resources.find((item) => item.id === id);
-      if (resource && confirmAction(`Delete the resource "${resource.title}" from local data?`)) commit(() => { state.resources = state.resources.filter((item) => item.id !== id); addAudit(`Career resource deleted: ${resource.title}`); }, "Career resource deleted.");
+      if (resource && confirmAction(`Delete the resource "${resource.title}"?`)) commit(() => { state.resources = state.resources.filter((item) => item.id !== id); addAudit(`Career resource deleted: ${resource.title}`); }, "Career resource deleted.");
       break;
     }
     case "add-faq": formModal("Add FAQ", "faq", "", faqForm(), "Add FAQ"); break;
@@ -1089,8 +1116,9 @@ async function handleFormSubmit(form) {
     const save = (uploadedImage = "") => {
       const courseData = {
         title: values.title.trim(), category: values.category, price: Number(values.price),
-        instructor: values.instructor.trim(), status: values.status, thumbnail: uploadedImage || values.thumbnail.trim(),
-        banner: values.banner.trim(), description: values.description.trim(), modules: values.modules.trim(),
+        instructor: values.instructor.trim(), status: values.status, featured: values.featured === "true", thumbnail: uploadedImage || values.thumbnail.trim(),
+        banner: values.banner.trim(), description: values.description.trim(), introduction: values.introduction.trim(),
+        objectives: values.objectives.trim(), modules: values.modules.trim(),
         materials: values.materials.trim(), assignments: values.assignments.trim(), quizzes: values.quizzes.trim(),
         requirements: values.requirements.trim()
       };
@@ -1103,7 +1131,7 @@ async function handleFormSubmit(form) {
         else state.courses.unshift({ ...courseData, id: `CRS-${Date.now()}`, enrolled: 0, completion: 0, createdAt: day(0) });
           if (!state.categories.includes(courseData.category)) state.categories.push(courseData.category);
           addAudit(`${current ? "Course updated" : "Course created"}: ${courseData.title}`);
-      }, current ? "Course changes saved on this device." : "Course created on this device.");
+      }, current ? "Course changes saved." : "Course created.");
       if (saved) closeModal();
     };
     if (file) {
@@ -1117,7 +1145,7 @@ async function handleFormSubmit(form) {
   if (kind === "session") {
     const sessionData = { title: values.title.trim(), mentor: values.mentor, student: values.student, type: values.type, date: values.date, time: values.time, link: values.link.trim(), status: "Scheduled" };
     if (!sessionData.title || !sessionData.date || !sessionData.time) { notify("Complete the required session details.", "error"); return; }
-    if (commit(() => { state.sessions.unshift({ ...sessionData, id: `MNT-${Date.now()}` }); addAudit(`Mentorship session scheduled: ${sessionData.title}`); }, "Session saved on this device.")) closeModal();
+    if (commit(() => { state.sessions.unshift({ ...sessionData, id: `MNT-${Date.now()}` }); addAudit(`Mentorship session scheduled: ${sessionData.title}`); }, "Session saved.")) closeModal();
     return;
   }
   if (kind === "job") {
@@ -1125,14 +1153,14 @@ async function handleFormSubmit(form) {
     const jobData = { title: values.title.trim(), company: values.company.trim(), type: values.type, location: values.location.trim(), link: values.link.trim(), verified: values.verified === "Verified", status: values.status, date: current?.date || day(0) };
     if (!jobData.title || !jobData.company || !jobData.location || !jobData.link) { notify("Complete the required opportunity fields.", "error"); return; }
     if (jobData.status === "Published" && !jobData.verified && !confirmAction("This is an external listing and is not marked verified. Clearly label it as external when published. Continue?")) return;
-    if (commit(() => { if (current) Object.assign(current, jobData); else state.jobs.unshift({ ...jobData, id: `JOB-${Date.now()}` }); addAudit(`${current ? "Opportunity updated" : "Opportunity added"}: ${jobData.title}`); }, "Opportunity saved on this device.")) closeModal();
+    if (commit(() => { if (current) Object.assign(current, jobData); else state.jobs.unshift({ ...jobData, id: `JOB-${Date.now()}` }); addAudit(`${current ? "Opportunity updated" : "Opportunity added"}: ${jobData.title}`); }, "Opportunity saved.")) closeModal();
     return;
   }
   if (kind === "faq") {
     const current = existing(state.faqs);
     const faqData = { question: values.question.trim(), answer: values.answer.trim(), status: values.status };
     if (!faqData.question || !faqData.answer) { notify("Enter both a question and an answer.", "error"); return; }
-    if (commit(() => { if (current) Object.assign(current, faqData); else state.faqs.unshift({ ...faqData, id: `FAQ-${Date.now()}` }); addAudit(`${current ? "FAQ updated" : "FAQ added"}: ${faqData.question}`); }, "FAQ saved on this device.")) closeModal();
+    if (commit(() => { if (current) Object.assign(current, faqData); else state.faqs.unshift({ ...faqData, id: `FAQ-${Date.now()}` }); addAudit(`${current ? "FAQ updated" : "FAQ added"}: ${faqData.question}`); }, "FAQ saved.")) closeModal();
     return;
   }
   if (kind === "category") {
@@ -1146,7 +1174,7 @@ async function handleFormSubmit(form) {
     const current = existing(state.resources);
     const resourceData = { title: values.title.trim(), category: values.category, link: values.link.trim(), status: values.status };
     if (!resourceData.title || !resourceData.link) { notify("Complete the resource title and link.", "error"); return; }
-    if (commit(() => { if (current) Object.assign(current, resourceData); else state.resources.unshift({ ...resourceData, id: `RES-${Date.now()}` }); addAudit(`Career resource ${current ? "updated" : "added"}: ${resourceData.title}`); }, "Career resource saved on this device.")) closeModal();
+    if (commit(() => { if (current) Object.assign(current, resourceData); else state.resources.unshift({ ...resourceData, id: `RES-${Date.now()}` }); addAudit(`Career resource ${current ? "updated" : "added"}: ${resourceData.title}`); }, "Career resource saved.")) closeModal();
     return;
   }
   if (kind === "testimonial") {
@@ -1183,10 +1211,14 @@ async function handleFormSubmit(form) {
     const review = existing(state.reviews);
     if (!review || !values.feedback.trim()) { notify("Add feedback before saving this review.", "error"); return; }
     if (review.source === "learner" && review.userId) {
-      const { data: workspace, error: readError } = await supabaseClient.from("learner_workspaces").select("data").eq("user_id", review.userId).maybeSingle();
-      if (readError) { notify(`Could not load the learner submission: ${readError.message}`, "error"); return; }
-      if (!workspace) { notify("The learner workspace for this submission no longer exists.", "error"); return; }
-      const learnerData = workspace.data || {};
+      let learnerData;
+      try {
+        learnerData = await supabaseClient.loadWorkspace(`learner:${review.userId}`);
+      } catch (error) {
+        notify(`Could not load the learner submission: ${error.message}`, "error");
+        return;
+      }
+      if (!learnerData) { notify("The learner workspace for this submission no longer exists.", "error"); return; }
       if (review.type === "Question") {
         const question = (learnerData.questions || []).find((item) => item.id === review.questionId);
         if (!question) { notify("The learner question could not be found.", "error"); return; }
@@ -1198,10 +1230,14 @@ async function handleFormSubmit(form) {
         progress.feedback = values.feedback.trim();
         progress.feedbackDate = day(0);
       }
-      const { error: saveError } = await supabaseClient.from("learner_workspaces").upsert({ user_id: review.userId, data: learnerData });
-      if (saveError) { notify(`Could not save feedback to the learner workspace: ${saveError.message}`, "error"); return; }
+      try {
+        await supabaseClient.saveWorkspace(`learner:${review.userId}`, learnerData);
+      } catch (error) {
+        notify(`Could not save feedback to the learner workspace: ${error.message}`, "error");
+        return;
+      }
     }
-    if (commit(() => { review.feedback = values.feedback.trim(); review.status = review.type === "Question" ? "Responded" : "Reviewed"; addAudit(`${review.type} ${review.status.toLowerCase()}: ${review.title}`); }, "Feedback saved in the local review record.")) closeModal();
+    if (commit(() => { review.feedback = values.feedback.trim(); review.status = review.type === "Question" ? "Responded" : "Reviewed"; addAudit(`${review.type} ${review.status.toLowerCase()}: ${review.title}`); }, "Feedback saved.")) closeModal();
     return;
   }
   if (kind === "review") {
@@ -1283,11 +1319,6 @@ document.querySelector("#topbar-date").title = new Intl.DateTimeFormat("en-NG", 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !modalLayer.hidden) closeModal();
   if (event.key === "Escape") sidebar.classList.remove("open");
-});
-
-document.querySelector("#admin-logout").addEventListener("click", async () => {
-  await supabaseClient.auth.signOut();
-  window.location.replace("auth.html?mode=login&admin=1");
 });
 
 render();

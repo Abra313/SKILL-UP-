@@ -101,6 +101,7 @@ a { color: inherit; text-decoration: none; }
 .page-note { margin: 15px 0 0; color: #8d9991; font-size: 12px; text-align: center; }
 .auth-toast { position: fixed; z-index: 5; right: 20px; bottom: 20px; width: min(390px, calc(100vw - 40px)); padding: 13px 15px; border: 1px solid #e3e7d7; border-radius: 5px; background: white; color: #697253; box-shadow: 0 8px 27px rgba(20,54,46,.13); font-size: 12px; line-height: 1.6; animation: auth-enter .22s ease-out; }
 .auth-toast[hidden] { display: none; }
+.auth-toast a { display: inline-block; margin-top: 6px; color: var(--auth-teal); font-weight: 700; text-decoration: underline; }
 [hidden] { display: none !important; }
 
 @media (max-width: 760px) {

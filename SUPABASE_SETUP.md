@@ -1,47 +1,53 @@
 # Supabase setup
 
-The app reads `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` from `.env` through the Node server. The publishable key is intended for browser use; database access is restricted by the RLS policies in `supabase/schema.sql`. Never put a Supabase `service_role` key in `.env` or this frontend.
+The site uses Supabase Auth for registration and login, and the `app_workspaces` table for shared course/content data and private learner data. The browser client uses the project's publishable key; never put a `service_role` or secret key in this project.
 
-## Connect the database
+## 1. Create the database objects
 
-1. Open the Supabase project `tchsnkitlycooksmvytu` and go to **SQL Editor**.
-2. Run the full contents of `supabase/schema.sql`. It creates/backfills profiles for existing Auth users, enforces the `admin` and `learner` roles, and installs a trigger that creates a learner profile whenever a new Auth user signs up. Existing profile roles are preserved as `admin` or normalized to `learner`. Run this script again to apply schema updates.
-3. In **Authentication → URL Configuration**, set the Site URL to `http://localhost:8001` and add `http://localhost:8001/**` to Redirect URLs. Add your deployed website URL before deployment.
-4. From the project folder, run `node server.js`. The server loads `.env` automatically and prints the address to open. Node.js 20.12 or later is required. If other devices need access, deploy the app to a public HTTPS host with `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` configured there; `localhost` only works on the computer running the server.
-5. Create or sign in to the administrator account through the app's Supabase Auth form. All public signups are learners by default; users cannot select or assign themselves the admin role.
-6. Promote the administrator in SQL Editor, replacing the email with the Auth account email:
+The app uses two database tables:
 
-   ```sql
-   update public.profiles
-   set role = 'admin'
-   where lower(email) = lower('admin@example.com');
-   ```
+- `profiles` stores each Auth user's name, email, and role. A database trigger creates every new profile with the `learner` role, regardless of signup metadata. The only roles are `learner` and `admin`.
+- `app_workspaces` stores the public course/content workspace, admin workspace, and each learner's private workspace as JSONB. Separate tables are not needed for those app records.
 
-   Confirm exactly one row was updated, then sign out and back in. The only supported profile roles are `admin` and `learner`. Admin privileges are checked against this database profile; the browser cannot grant itself admin access.
+The role is read from the protected `profiles` table. Authenticated users can update their own name but cannot change their role. New registrations automatically become learners; admin accounts must be promoted manually by a trusted project owner in the SQL Editor.
 
-## Find registered users
+To provision these objects with the Supabase CLI, run this from PowerShell in the project folder:
 
-- Every successful signup is stored by Supabase Auth in `auth.users`; when email confirmation is enabled, an unconfirmed signup is stored there too.
-- The database trigger copies the user's email and name into `public.profiles`. Admins can view learner profiles in **Admin → Students**; administrator profiles are kept separate from the learner list.
-- To verify accounts in Supabase SQL Editor, run:
+```text
+powershell -ExecutionPolicy Bypass -File .\setup-supabase.ps1
+```
 
-  ```sql
-  select id, email, full_name, role, created_at
-  from public.profiles
-  order by created_at desc;
-  ```
+The script signs in to Supabase CLI, links the project, and applies the migration in [`supabase/migrations/`](./supabase/migrations/). Supabase will ask you to authenticate and may ask for the project's database password. The migration creates the tables, signup trigger, helper function, and row-level security policies. Do not put a database password, access token, or service-role key in the website.
 
-- If Auth users exist but are missing from `public.profiles`, run `supabase/schema.sql` again to install the trigger and backfill existing accounts. Never expose passwords or use a service-role key in the browser.
+Alternatively, in the Supabase dashboard open **SQL Editor**, paste the contents of [`supabase-schema.sql`](./supabase-schema.sql), and run it. This SQL file contains the same setup for manual provisioning.
 
-## Data behavior
+## 2. Configure authentication
 
-- Admin workspace and course edits are persisted to Supabase.
-- Learner workspace data is scoped by the signed-in Supabase Auth user ID.
-- Learners can submit enrollment requests for published courses from the basket. Requests are stored in `public.enrollment_requests` and are visible to admins under **Admin → Finance**.
-- Before approving a request, an admin must independently verify payment. Approval uses the `approve_enrollment_request(uuid)` database function to create the enrollment and approve the request atomically. It grants course access but does not charge a learner or verify a transaction with a payment provider. Rejections are recorded and the learner may submit a new request.
-- Apply the full `supabase/schema.sql` before using enrollment requests; it creates the request table, row-level security policies, and approval function.
-- The first admin or learner login can seed the database from legacy localStorage only when the page is running on the same browser origin. The old snapshot is retained as a backup. Switching from `file://` to `http://localhost:8001` uses a different browser storage origin, so old file-based records are not automatically imported.
-- Legacy localStorage purchases are not converted into `enrollments`. They are user-editable demo records and cannot be trusted to grant course access; verify prior purchases and add only confirmed enrollments from the admin/database side.
-- Existing sample payments, activities, and learner records are demo data. A real payment provider and verified transaction records are not connected.
-- Email confirmation and password reset redirects must be configured in Supabase Auth for the deployed domain.
-- For deployment, configure `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` as hosting environment variables. The host must run `server.js` or provide the `/supabase-config.js` endpoint; serving the HTML files alone does not provide the Supabase settings. Add the deployed HTTPS origin to Supabase Auth's allowed redirect URLs.
+In **Authentication → URL Configuration**, set the Site URL to the deployed HTTPS website URL and allow that site's `auth.html` callback URL for email confirmation.
+
+```text
+https://your-deployed-domain.example/**
+```
+
+In **Authentication → Providers → Email**, enable email/password sign-in. Email confirmation can remain enabled; new users will be asked to confirm their email before their first sign-in.
+
+## 3. Assign an administrator
+
+Register the administrator account through the same sign-up page as other learners. After that account appears in **Authentication → Users** and its profile is created, run this in the SQL Editor, replacing the email:
+
+```sql
+update public.profiles
+set role = 'admin'
+where lower(email) = lower('admin@example.com')
+returning id, email, role;
+```
+
+Confirm the returned row shows `admin`. To return the account to learner access, use `set role = 'learner'` with the same email filter. Only assign admin to accounts you control. Never put an admin password or privileged key in browser code.
+
+## 4. Run the site
+
+Deploy the static files to an HTTPS web host and open the deployed `index.html`. Supabase keeps the active sign-in session in tab-scoped session storage so it survives navigation between the site's pages; application data is fetched from and saved to Supabase.
+
+The project URL and publishable key are configured in [`supabase-config.js`](./supabase-config.js). A publishable key is intended for browser use; access to private rows is restricted by the SQL row-level security policies.
+
+Existing accounts and application data are read from Supabase. Browser-local application data is not used.

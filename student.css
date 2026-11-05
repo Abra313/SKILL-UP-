@@ -136,6 +136,17 @@ a { color: inherit; text-decoration: none; }
 .catalog-meta { display: flex; align-items: center; justify-content: space-between; color: #85918b; font-size: 12px; }
 .catalog-body h3 { min-height: 34px; margin: 7px 0 5px; font-family: var(--learner-display); font-size: 13px; line-height: 1.5; }
 .catalog-body p { min-height: 42px; margin: 0; color: #829089; font-size: 12px; line-height: 1.6; }
+.catalog-introduction { padding: 9px; margin-top: 9px; border-radius: 4px; background: #f5f8f3; }
+.catalog-introduction strong, .catalog-preview-content h4 { display: block; margin: 0 0 4px; color: #53665e; font-size: 12px; }
+.catalog-body .catalog-introduction p { min-height: 0; color: #718078; }
+.catalog-preview { margin-top: 8px; border: 1px solid #e9eeea; border-radius: 4px; }
+.catalog-preview summary { display: flex; align-items: center; justify-content: space-between; gap: 7px; padding: 9px; color: var(--learner-teal); cursor: pointer; font-size: 12px; font-weight: 700; }
+.catalog-preview summary span { color: #89958f; font-size: 12px; font-weight: 400; }
+.catalog-preview-content { padding: 0 9px 9px; }
+.catalog-preview-content h4:not(:first-child) { margin-top: 9px; }
+.catalog-preview-content ul, .catalog-preview-content ol { display: grid; gap: 4px; padding-left: 17px; margin: 0; color: #718078; font-size: 12px; line-height: 1.55; }
+.catalog-preview-content p { min-height: 0; }
+.catalog-actions { flex-wrap: wrap; }
 .catalog-rating { color: #bc8b2f; }
 .catalog-actions { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding-top: 9px; margin-top: 9px; border-top: 1px solid #eff2ee; }
 .catalog-instructor { overflow: hidden; color: #83908a; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -146,6 +157,7 @@ a { color: inherit; text-decoration: none; }
 .course-detail-overlay h3 { margin: 0 0 8px; font-family: var(--learner-display); font-size: 19px; }
 .course-detail-overlay p { margin: 0; color: #e5eee8; font-size: 12px; }
 .detail-sections { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.course-learning-overview { margin-bottom: 14px; }
 .learner-detail-box { padding: 11px; border: 1px solid #edf0ec; border-radius: 4px; background: #fff; }
 .learner-detail-box h3 { margin: 0 0 7px; font-family: var(--learner-display); font-size: 12px; }
 .learner-detail-box p, .learner-detail-box li { color: #77857e; font-size: 12px; line-height: 1.6; }

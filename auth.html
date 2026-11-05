@@ -4,76 +4,74 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#10383a">
-    <meta name="description" content="Sign in to your SKILL-UP learner or administrator account, or create a learner account.">
-    <title>Sign in or join — SKILL-UP</title>
+    <meta name="description" content="Create a SKILL-UP account or sign in to continue learning.">
+    <title>Sign in or register — SKILL-UP</title>
     <link rel="icon" type="image/png" href="assets/skill-up-logo.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="auth.css?v=3">
+    <link rel="stylesheet" href="auth.css">
   </head>
   <body>
     <main class="auth-page">
-      <a class="back-home" href="index.html"><span aria-hidden="true">←</span> Back to home</a>
-      <section class="auth-card" aria-label="Account access">
+      <a class="back-home" href="index.html"><span aria-hidden="true">←</span> Back to SKILL-UP</a>
+      <section class="auth-card">
         <div class="auth-form-panel">
           <a class="auth-brand" href="index.html" aria-label="SKILL-UP home"><img src="assets/skill-up-logo.png" alt="SKILL-UP"></a>
           <div class="auth-intro">
             <p class="eyebrow"><span></span> YOUR NEXT CHAPTER STARTS HERE</p>
-            <h1 id="form-heading">Welcome back.</h1>
-            <p id="form-subheading">Sign in to pick up where you left off.</p>
+            <h1 id="auth-heading">Welcome back</h1>
+            <p id="auth-description">Sign in to continue to your SKILL-UP workspace.</p>
           </div>
-          <div class="auth-tabs" role="tablist" aria-label="Choose account action">
-            <button type="button" class="auth-tab active" id="login-tab" role="tab" aria-selected="true" aria-controls="auth-form" data-mode="login">Log in</button>
-            <button type="button" class="auth-tab" id="signup-tab" role="tab" aria-selected="false" aria-controls="auth-form" data-mode="signup">Create account</button>
+          <div class="auth-tabs" id="auth-tabs" role="tablist" aria-label="Account options">
+            <button class="auth-tab active" id="login-tab" type="button" role="tab" aria-selected="true">Log in</button>
+            <button class="auth-tab" id="register-tab" type="button" role="tab" aria-selected="false">Create account</button>
           </div>
-          <div class="course-selection" id="course-selection" hidden><span class="course-selection-icon" aria-hidden="true">▤</span><p>You're interested in <strong id="selected-course"></strong></p></div>
           <form id="auth-form" novalidate>
-            <div class="form-field signup-only" hidden>
-              <label for="full-name">Your name</label>
-              <input id="full-name" name="name" type="text" autocomplete="name" placeholder="e.g. Amara Okafor" minlength="2">
-              <span class="field-error" id="name-error"></span>
+            <div class="form-field" id="name-field" hidden>
+              <label for="full-name">Full name</label>
+              <input id="full-name" name="name" autocomplete="name" minlength="2" placeholder="Your name">
             </div>
             <div class="form-field">
               <label for="email">Email address</label>
-              <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
-              <span class="field-error" id="email-error"></span>
+              <input id="email" name="email" type="email" autocomplete="username" required placeholder="you@example.com">
             </div>
             <div class="form-field">
-              <div class="label-row"><label for="password">Password</label><a class="forgot-link" href="#password-help" id="forgot-password">Forgot password?</a></div>
-              <div class="password-control"><input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" minlength="8" required><button type="button" class="password-toggle" aria-label="Show password" aria-pressed="false">Show</button></div>
-              <span class="field-error" id="password-error"></span>
+              <label for="password">Password</label>
+              <input id="password" name="password" type="password" autocomplete="current-password" required minlength="8" placeholder="At least 8 characters">
             </div>
-            <label class="remember-row signup-only" hidden><input type="checkbox" name="terms" id="terms"> <span>I agree to the <a href="index.html#contact">terms of service</a> and privacy policy.</span></label>
-            <span class="field-error terms-error" id="terms-error"></span>
-            <button class="submit-button" type="submit"><span id="submit-label">Log in</span><span aria-hidden="true">↗</span></button>
+            <div class="form-field" id="confirm-field" hidden>
+              <label for="confirm-password">Confirm password</label>
+              <input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" placeholder="Enter your password again">
+            </div>
+            <button class="submit-button" id="submit-button" type="submit"><span>Log in</span><span aria-hidden="true">↗</span></button>
           </form>
-          <div class="auth-divider"><span>or continue with</span></div>
-          <button type="button" class="google-button" id="google-button"><span class="google-mark">G</span> Continue with Google</button>
-          <p class="auth-switch" id="auth-switch-copy">New to SKILL-UP? <button type="button" data-mode="signup">Create your account</button></p>
-          <p class="auth-legal">By continuing, you agree to SKILL-UP's <a href="index.html#contact">Terms</a> and <a href="index.html#contact">Privacy Policy</a>.</p>
+          <p class="auth-switch" id="auth-switch">New to SKILL-UP? <button type="button" data-set-mode="register">Create an account</button></p>
         </div>
         <aside class="auth-aside">
           <div class="aside-orb aside-orb-one"></div><div class="aside-orb aside-orb-two"></div>
           <div class="aside-content">
-            <p class="aside-kicker"><span>✳</span> MADE FOR WHAT'S NEXT</p>
-            <h2>Small steps.<br>Big possibilities.</h2>
-            <p>Find your next skill, get guidance from people who've been there, and start building a future that feels like yours.</p>
+            <p class="aside-kicker"><span>✳</span> LEARN. BUILD. GROW.</p>
+            <h2>Make your next move count.</h2>
+            <p>Build practical digital skills, learn at your own pace and keep your progress together in one place.</p>
             <div class="aside-points">
-              <div><span class="point-icon">↗</span><p><strong>Learn by building</strong><small>Make real projects, not just notes.</small></p></div>
-              <div><span class="point-icon point-violet">✦</span><p><strong>Grow with mentorship</strong><small>Get guidance along the way.</small></p></div>
-              <div><span class="point-icon point-coral">◎</span><p><strong>Get ready for opportunities</strong><small>Prepare to take your next step.</small></p></div>
+              <div><span class="point-icon">✓</span><p><strong>Learn by doing</strong><small>Explore courses and projects</small></p></div>
+              <div><span class="point-icon point-violet">↗</span><p><strong>Keep moving forward</strong><small>Track your learning progress</small></p></div>
+              <div><span class="point-icon point-coral">✦</span><p><strong>Build for your future</strong><small>Develop skills for new opportunities</small></p></div>
             </div>
-            <div class="aside-footer"><span>LEARN. BUILD. GROW.</span><span class="aside-flower">✳</span></div>
+            <div class="aside-footer"><span>SKILL-UP</span><span class="aside-flower">✳</span></div>
           </div>
         </aside>
       </section>
-      <p class="page-note">Your account is managed by Supabase. Passwords are never stored in this app's database.</p>
+      <p class="page-note">Your account is securely authenticated by Supabase. Never share your password.</p>
+      <div class="auth-toast" id="auth-message" role="status" aria-live="polite" hidden>
+        <span id="auth-message-text"></span>
+        <a id="auth-setup-link" href="SUPABASE_SETUP.md" hidden>Open Supabase setup instructions</a>
+      </div>
     </main>
-    <div class="auth-toast" id="auth-message" role="status" aria-live="polite" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="/supabase-config.js"></script>
+    <script src="supabase-config.js"></script>
     <script src="supabase-client.js"></script>
-    <script src="auth.js?v=4"></script>
+    <script src="auth.js"></script>
   </body>
 </html>

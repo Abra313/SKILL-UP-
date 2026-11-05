@@ -27,14 +27,11 @@
           <button class="nav-item" data-view="finance"><span class="nav-icon">₦</span>Payments &amp; finance</button>
           <button class="nav-item" data-view="referrals"><span class="nav-icon">↗</span>Referrals</button>
           <button class="nav-item" data-view="mentorship"><span class="nav-icon">◎</span>Mentorship</button>
-          <button class="nav-item" data-view="careers"><span class="nav-icon">↗</span>Careers &amp; jobs</button>
-          <button class="nav-item" data-view="content"><span class="nav-icon">▧</span>Website content</button>
           <button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span>Settings &amp; security</button>
         </nav>
         <div class="sidebar-bottom">
-          <div class="local-status"><span class="status-pulse"></span><div><strong>Supabase database</strong><small>Cloud-backed workspace</small></div></div>
           <a class="sidebar-site-link" href="index.html"><span>↖</span> View public website</a>
-          <div class="admin-profile"><span class="avatar avatar-admin">SA</span><div><strong>Site Admin</strong><small>Administrator</small></div><span class="profile-dots">···</span></div>
+          <div class="admin-profile"><span class="avatar avatar-admin" id="admin-profile-initials">AD</span><div><strong id="admin-profile-name">Administrator</strong><small>Administrator</small></div><span class="profile-dots">···</span></div>
         </div>
       </aside>
 
@@ -42,7 +39,7 @@
         <header class="topbar">
           <button class="mobile-menu" type="button" aria-label="Open admin navigation" aria-expanded="false">☰</button>
           <div class="breadcrumb"><span>Workspace</span><b>/</b><strong id="current-page">Dashboard</strong></div>
-          <div class="topbar-actions"><button class="icon-button" id="topbar-date" type="button" aria-label="Today's date">◷</button><button class="admin-logout-button" id="admin-logout" type="button">Sign out</button></div>
+          <div class="topbar-actions"><button class="icon-button" id="topbar-date" type="button" aria-label="Today's date">◷</button><a class="admin-site-button" href="index.html">View website</a><a class="admin-site-button" href="auth.html?mode=login" data-sign-out>Sign out</a></div>
         </header>
         <main class="main-content" id="main-content" tabindex="-1"></main>
       </div>
@@ -56,8 +53,10 @@
       </section>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="/supabase-config.js"></script>
+    <script src="supabase-config.js"></script>
     <script src="supabase-client.js"></script>
-    <script src="admin.js?v=2"></script>
+    <script src="auth-store.js"></script>
+    <script src="ai-course-catalog.js?v=2"></script>
+    <script src="admin.js?v=4"></script>
   </body>
 </html>

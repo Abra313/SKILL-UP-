@@ -1,7 +1,4 @@
-(() => {
-  const client = window.skillUpSupabase;
-  if (!client) return;
-
+(async () => {
   const faqList = document.querySelector("#public-faq-list");
   const announcements = document.querySelector("#public-announcements");
   const opportunities = document.querySelector("#public-opportunities");
@@ -11,6 +8,30 @@
   const testimonialList = document.querySelector("#public-testimonial-list");
   const legalDialog = document.querySelector("#legal-dialog");
   let homepage = {};
+  let publicContent = [];
+  try {
+    const workspace = await window.skillUpSupabase.loadWorkspace("public");
+    if (workspace) {
+      publicContent = [
+        { kind: "homepage", status: "Published", data: workspace.siteContent },
+        ...[
+          ["faqs", "faq"],
+          ["jobs", "job"],
+          ["resources", "resource"],
+          ["testimonials", "testimonial"],
+          ["announcements", "announcement"]
+        ].flatMap(([key, kind]) => (workspace[key] || []).map((item) => ({
+          kind,
+          status: item.status || "Draft",
+          data: item
+        })))
+      ].filter((item) => item.status === "Published");
+    }
+  } catch (error) {
+    console.error("Could not load Supabase website content:", error);
+    if (faqList) faqList.innerHTML = '<div class="empty-state" role="status">Website updates could not be loaded from Supabase. Check the project setup and try again.</div>';
+    return;
+  }
 
   const safeUrl = (value) => {
     try {
@@ -104,17 +125,7 @@
     }));
   }
 
-  client.from("public_content").select("kind,data").eq("status", "Published").then(({ data, error }) => {
-    if (error) {
-      if (faqList) faqList.innerHTML = '<div class="empty-state" role="status">Website content is temporarily unavailable.</div>';
-      if (opportunities) {
-        opportunities.hidden = false;
-        opportunities.querySelector(".container").append(element("p", "empty-state", "Career content is temporarily unavailable."));
-      }
-      return;
-    }
-
-    const content = data || [];
+  const content = publicContent;
     homepage = content.find((item) => item.kind === "homepage")?.data || {};
     const headline = document.querySelector("#public-hero-headline");
     if (headline && homepage.headline) {
@@ -156,8 +167,6 @@
         }));
       }
     }
-  });
-
   document.querySelectorAll("[data-legal]").forEach((link) => {
     link.addEventListener("click", (event) => {
       event.preventDefault();

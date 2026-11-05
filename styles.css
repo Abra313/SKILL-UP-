@@ -168,6 +168,12 @@ h1, h2, h3 { font-family: var(--font-display); }
 .course-topline { display: flex; align-items: center; justify-content: space-between; gap: 5px; color: #80928b; font-size: 12px; font-weight: 700; letter-spacing: .8px; }
 .course-content h3 { min-height: 43px; margin: 9px 0 5px; font-size: 15px; letter-spacing: -.4px; line-height: 1.4; }
 .course-content p { min-height: 56px; margin-bottom: 14px; color: #71807a; font-size: 12px; line-height: 1.7; }
+.course-outline { margin: -2px 0 12px; border-top: 1px solid #edf0e9; }
+.course-outline summary { padding: 9px 0; color: var(--deep); cursor: pointer; font-size: 12px; font-weight: 700; }
+.course-outline-content { padding: 8px 0 2px; border-top: 1px solid #edf0e9; }
+.course-outline-content h4 { margin: 0 0 5px; color: var(--deep); font-size: 12px; }
+.course-outline-content p { min-height: 0; margin: 0 0 10px; }
+.course-outline-content ul { display: grid; gap: 4px; padding-left: 16px; margin: 0 0 11px; color: #71807a; font-size: 12px; line-height: 1.6; }
 .course-link { display: flex; justify-content: space-between; align-items: center; padding-top: 11px; border-top: 1px solid #edf0e9; color: var(--deep); font-size: 12px; font-weight: 700; }
 .course-link span { color: var(--teal); font-size: 15px; }
 .course-footnote { display: flex; align-items: center; gap: 16px; margin-top: 26px; padding: 19px 22px; border: 1px solid #e7e9df; background: #f0f2e9; }

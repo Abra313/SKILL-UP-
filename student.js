@@ -1,37 +1,8 @@
 (async () => {
+const currentUser = await window.skillUpAuth.requireRole("learner");
+if (!currentUser) return;
 const supabaseClient = window.skillUpSupabase;
-if (!supabaseClient) {
-  window.location.replace("auth.html?mode=login");
-  return;
-}
-const { data: { session } } = await supabaseClient.auth.getSession();
-if (!session) {
-  window.location.replace("auth.html?mode=login");
-  return;
-}
-const { data: learnerProfile, error: profileError } = await supabaseClient
-  .from("profiles")
-  .select("role,full_name,email")
-  .eq("id", session.user.id)
-  .maybeSingle();
-if (profileError || !learnerProfile) {
-  window.location.replace("auth.html?mode=login");
-  return;
-}
-if (learnerProfile.role === "admin") {
-  window.location.replace("admin.html");
-  return;
-}
-if (learnerProfile.role !== "learner") {
-  window.location.replace("auth.html?mode=login");
-  return;
-}
-const learnerAuthSession = {
-  id: session.user.id,
-  email: session.user.email,
-  name: learnerProfile.full_name || session.user.user_metadata?.full_name || session.user.email.split("@")[0]
-};
-const STUDENT_STORAGE_KEY = `skillup-learner-prototype-v1:${learnerAuthSession.email}`;
+const LEARNER_ID = currentUser.id;
 const learnerContent = document.querySelector("#learner-content");
 const learnerSidebar = document.querySelector("#learner-sidebar");
 const learnerModal = document.querySelector("#learner-modal-layer");
@@ -51,17 +22,6 @@ const learnerDay = (offset = 0) => {
   date.setDate(date.getDate() + offset);
   return date.toISOString().slice(0, 10);
 };
-const demoCourses = [
-  { id: "c-fullstack", title: "Full Stack Development", category: "Development", price: 5000, instructor: "Tunde Adebayo", status: "Published", description: "Build complete websites and web applications with frontend, backend and database skills.", modules: "Web fundamentals\nFrontend foundations\nBackend APIs\nDatabases and deployment", materials: "https://example.com/fullstack-guide.pdf", requirements: "Complete all core modules and submit the portfolio project.", assignments: "Build and deploy a responsive portfolio website.", quizzes: "Web fundamentals quiz\nJavaScript and API quiz", thumbnail: "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=800&q=80", duration: "8 weeks", level: "Beginner friendly" },
-  { id: "c-frontend", title: "Frontend Development", category: "Development", price: 5000, instructor: "Ada Okafor", status: "Published", description: "Master HTML, CSS and JavaScript to create beautiful, responsive websites.", modules: "HTML and accessibility\nCSS and responsive layouts\nJavaScript fundamentals\nModern frontend projects", materials: "", requirements: "Complete all core lessons and submit the final website project.", assignments: "Create a responsive product landing page.", quizzes: "HTML and accessibility quiz\nCSS layout quiz", thumbnail: "https://images.unsplash.com/photo-1547658719-da2b51169166?auto=format&fit=crop&w=800&q=80", duration: "6 weeks", level: "Beginner friendly" },
-  { id: "c-ai", title: "AI Automation", category: "Artificial Intelligence", price: 5000, instructor: "Ifeanyi Okoro", status: "Published", description: "Use AI tools and automation platforms to build intelligent workflows.", modules: "AI foundations\nWorkflow automation\nConnecting business tools\nBuild an automation project", materials: "", requirements: "Submit one working automation and complete the final quiz.", assignments: "Create an automated lead follow-up workflow.", quizzes: "Workflow automation fundamentals", thumbnail: "https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=800&q=80", duration: "5 weeks", level: "All levels" },
-  { id: "c-voice", title: "AI Voice Agent", category: "Artificial Intelligence", price: 5000, instructor: "Chika Nwosu", status: "Published", description: "Create voice agents that communicate, help customers and automate conversations.", modules: "Voice AI fundamentals\nConversation design\nAgent integrations\nTesting and deployment", materials: "", requirements: "Build, test and document a working voice-agent prototype.", assignments: "Design a helpful customer-support voice agent.", quizzes: "Voice agent safety and conversation design", thumbnail: "https://images.unsplash.com/photo-1590602847861-f357a9332bbc?auto=format&fit=crop&w=800&q=80", duration: "5 weeks", level: "All levels" },
-  { id: "c-vibe", title: "Vibe Coding & Google AdSense", category: "Development", price: 5000, instructor: "Tunde Adebayo", status: "Published", description: "Build digital products with AI-assisted coding and explore website monetization.", modules: "AI-assisted prototyping\nCreate a web product\nContent and publishing\nMonetization basics", materials: "", requirements: "Publish a simple project and complete the monetization knowledge check.", assignments: "Build and publish a small useful website.", quizzes: "Content quality and AdSense policy quiz", thumbnail: "https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80", duration: "4 weeks", level: "Beginner friendly" },
-  { id: "c-ux", title: "UI/UX Design", category: "Design", price: 5000, instructor: "Ada Okafor", status: "Published", description: "Learn wireframing, prototyping and user-friendly digital product design.", modules: "Design thinking\nResearch and personas\nWireframes and prototypes\nUsability and handoff", materials: "", requirements: "Submit a case study and a clickable prototype.", assignments: "Redesign a familiar mobile app flow.", quizzes: "Accessibility and usability quiz", thumbnail: "https://images.unsplash.com/photo-1586717791821-3f44a563fa4c?auto=format&fit=crop&w=800&q=80", duration: "6 weeks", level: "All levels" },
-  { id: "c-graphics", title: "Graphics Design", category: "Design", price: 5000, instructor: "Zainab Musa", status: "Published", description: "Develop creative skills in branding, social media graphics and visual communication.", modules: "Design fundamentals\nColor and typography\nBranding projects\nSocial media campaigns", materials: "", requirements: "Submit a mini brand kit with three design assets.", assignments: "Design a social media campaign for a local business.", quizzes: "Color, typography and visual hierarchy", thumbnail: "https://images.unsplash.com/photo-1626785774573-4b799315345d?auto=format&fit=crop&w=800&q=80", duration: "4 weeks", level: "Beginner friendly" },
-  { id: "c-mobile", title: "Mobile App Development", category: "Development", price: 5000, instructor: "Ifeanyi Okoro", status: "Published", description: "Create mobile applications and turn ideas into functional Android and iOS experiences.", modules: "Mobile app foundations\nInterface and navigation\nConnect to APIs\nBuild and test an app", materials: "", requirements: "Complete the core lessons and submit a tested mobile app prototype.", assignments: "Build an app with navigation and one data-driven screen.", quizzes: "Mobile app fundamentals", thumbnail: "https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?auto=format&fit=crop&w=800&q=80", duration: "8 weeks", level: "All levels" },
-  { id: "c-cybersecurity", title: "Cybersecurity Fundamentals", category: "Cybersecurity", price: 5000, instructor: "Chika Nwosu", status: "Published", description: "Learn ethical, defensive security practices for protecting accounts, networks and digital information.", modules: "Security foundations and ethics\nThreat modeling and risk management\nIdentity, access and network defense\nSecure software and data protection\nIncident response and recovery\nSecurity awareness capstone", materials: "", requirements: "Complete the core lessons and submit a defensive security plan.", assignments: "Create a security awareness and incident response plan for a small organization.", quizzes: "Security foundations and safe practice", thumbnail: "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80", duration: "6 weeks", level: "Beginner friendly" }
-];
 const initialLearnerState = () => ({
   profile: { name: "", email: "", role: "Student / learner", avatar: "", location: "", bio: "", notifications: true },
   courses: [],
@@ -89,74 +49,58 @@ function escapeLearner(value) {
   })[character]);
 }
 
-async function readLearnerState() {
-  const [
-    { data: remoteWorkspace, error: workspaceError },
-    { data: remoteCourses, error: coursesError },
-    { data: remoteEnrollments, error: enrollmentError },
-    { data: remoteEnrollmentRequests, error: enrollmentRequestsError },
-    { data: remotePublicContent, error: publicContentError }
-  ] = await Promise.all([
-    supabaseClient.from("learner_workspaces").select("data").eq("user_id", learnerAuthSession.id).maybeSingle(),
-    supabaseClient.from("courses").select("data").eq("status", "Published"),
-    supabaseClient.from("enrollments").select("course_id,status,purchased_at,amount,receipt").eq("user_id", learnerAuthSession.id).eq("status", "Successful"),
-    supabaseClient.from("enrollment_requests").select("id,course_id,status,requested_at").eq("user_id", learnerAuthSession.id).order("requested_at", { ascending: false }),
-    supabaseClient.from("public_content").select("kind,data").eq("status", "Published").in("kind", ["job", "resource", "announcement"])
-  ]);
-  if (workspaceError) throw workspaceError;
-  if (coursesError) throw coursesError;
-  if (enrollmentError) throw enrollmentError;
-  if (enrollmentRequestsError) throw enrollmentRequestsError;
-  if (publicContentError) throw publicContentError;
-
+function readLearnerState(source, publicWorkspace) {
   const defaults = initialLearnerState();
-  let legacyData = null;
-  if (!remoteWorkspace) {
-    try { legacyData = JSON.parse(localStorage.getItem(STUDENT_STORAGE_KEY) || "null"); } catch { legacyData = null; }
-  }
-  const source = remoteWorkspace?.data || legacyData || defaults;
+  source ||= defaults;
   const loaded = Object.fromEntries(Object.keys(defaults).map((key) => [key, source[key] ?? defaults[key]]));
-  if (!remoteWorkspace && !legacyData) {
-    loaded.purchases = [];
-    loaded.progress = {};
-    loaded.activities = [];
-    loaded.sessions = [];
-    loaded.questions = [];
-    loaded.quizzes = {};
-    loaded.referral = { active: false, code: "", registrations: 0, conversions: 0, commission: 0, withdrawals: [], history: [] };
-  }
-  loaded.courses = remoteCourses.map((course) => course.data);
-  loaded.jobs = remotePublicContent.filter((item) => item.kind === "job").map((item) => item.data);
-  loaded.resources = remotePublicContent.filter((item) => item.kind === "resource").map((item) => item.data);
-  loaded.announcements = remotePublicContent.filter((item) => item.kind === "announcement").map((item) => item.data);
-  loaded.purchases = remoteEnrollments.map((enrollment) => ({
-    courseId: enrollment.course_id,
-    purchasedAt: enrollment.purchased_at,
-    amount: Number(enrollment.amount),
-    status: enrollment.status,
-    receipt: enrollment.receipt
-  }));
-  loaded.enrollmentRequests = remoteEnrollmentRequests;
+  const publishedCourses = (publicWorkspace?.courses || []).filter((course) => course.status === "Published");
+  loaded.courses = publicWorkspace?.catalogInitialized
+    ? publishedCourses
+    : publishedCourses.length
+      ? publishedCourses
+      : (window.skillUpAICourses || []).map((course) => ({
+        ...course,
+        price: 5000,
+        instructor: "SKILL-UP Team",
+        status: "Published",
+        enrolled: 0,
+        completion: 0,
+        thumbnail: course.thumbnail,
+        banner: "",
+        materials: "",
+        requirements: "Complete the course modules and submit the final project.",
+        assignments: "Create a practical project that applies the skills from this course.",
+        quizzes: "Course fundamentals"
+      }));
+  loaded.jobs = (publicWorkspace?.jobs || []).filter((item) => item.status === "Published");
+  loaded.resources = (publicWorkspace?.resources || []).filter((item) => item.status === "Published");
+  loaded.announcements = (publicWorkspace?.announcements || []).filter((item) => item.status === "Published");
   loaded.profile = {
     ...defaults.profile,
     ...loaded.profile,
-    name: loaded.profile?.name || learnerAuthSession.name,
-    email: learnerAuthSession.email,
-    role: "Student / learner"
+    name: currentUser.name,
+    email: currentUser.email,
+    role: "Learner"
   };
-
-  if (!remoteWorkspace) {
-    const { error } = await supabaseClient.from("learner_workspaces").upsert({ user_id: learnerAuthSession.id, data: loaded });
-    if (error) throw error;
-  }
   return loaded;
 }
-
 let learnerState;
 try {
-  learnerState = await readLearnerState();
+  const [publicWorkspace, learnerWorkspace] = await Promise.all([
+    supabaseClient.loadWorkspace("public"),
+    supabaseClient.loadWorkspace(`learner:${currentUser.id}`)
+  ]);
+  learnerState = readLearnerState(learnerWorkspace, publicWorkspace);
+  if (!learnerWorkspace) {
+    const snapshot = { ...learnerState };
+    delete snapshot.courses;
+    delete snapshot.jobs;
+    delete snapshot.resources;
+    delete snapshot.announcements;
+    await supabaseClient.saveWorkspace(`learner:${currentUser.id}`, snapshot);
+  }
 } catch (error) {
-  document.querySelector("#learner-content").innerHTML = `<section class="learner-panel"><div class="learner-panel-body"><h2>Could not connect to Supabase</h2><p>${escapeLearner(error.message || "Check the database schema and project configuration, then reload.")}</p></div></section>`;
+  document.querySelector("#learner-content").innerHTML = `<section class="learner-panel"><div class="learner-panel-body"><h2>Could not load Supabase data</h2><p>${escapeLearner(error.message || "Check the Supabase project setup and try again.")}</p></div></section>`;
   return;
 }
 let activeLearnerView = "dashboard";
@@ -165,39 +109,27 @@ let courseCategory = "All";
 let certificateFocus = "";
 let previousModalFocus = null;
 
-let learnerPersistQueue = Promise.resolve();
 let persistedLearnerState = JSON.parse(JSON.stringify(learnerState));
-let learnerPersistVersion = 0;
-function saveLearnerState(mutator, message) {
+async function saveLearnerState(mutator, message) {
   mutator();
-  const committedState = JSON.parse(JSON.stringify(learnerState));
   const snapshot = JSON.parse(JSON.stringify(learnerState));
-  const version = ++learnerPersistVersion;
-  delete snapshot.purchases;
-  delete snapshot.enrollmentRequests;
   delete snapshot.courses;
   delete snapshot.jobs;
   delete snapshot.resources;
   delete snapshot.announcements;
-  learnerPersistQueue = learnerPersistQueue.then(async () => {
-    const { error } = await supabaseClient.from("learner_workspaces").upsert({ user_id: learnerAuthSession.id, data: snapshot });
-    if (error) throw error;
-  }).then(() => {
-    persistedLearnerState = committedState;
-    if (message) notify(message);
+  try {
+    await supabaseClient.saveWorkspace(`learner:${currentUser.id}`, snapshot);
+    persistedLearnerState = JSON.parse(JSON.stringify(learnerState));
+    if (message) notify(`${message} Synced with Supabase.`);
+    renderLearnerView();
     return true;
-  }).catch((error) => {
-    if (version === learnerPersistVersion) {
-      learnerState = JSON.parse(JSON.stringify(persistedLearnerState));
-      renderLearnerView();
-    }
-    notify(`Supabase could not save this change: ${error.message || "Database request failed."}`, "error");
+  } catch (error) {
+    learnerState = persistedLearnerState;
+    renderLearnerView();
+    notify(`Could not sync this change with Supabase: ${error.message}`, "error");
     return false;
-  });
-  renderLearnerView();
-  return learnerPersistQueue;
+  }
 }
-
 function notify(message, type = "success") {
   const toast = document.createElement("div");
   toast.className = `learner-toast${type === "error" ? " error" : ""}`;
@@ -269,8 +201,9 @@ function renderSidebarUser() {
   document.querySelector("#sidebar-user").innerHTML = `${learnerAvatar(profile.name, profile.avatar)}<div class="learner-user-copy"><strong>${escapeLearner(profile.name)}</strong><small>${escapeLearner(profile.role)}</small></div>`;
   const topAvatar = document.querySelector(".learner-top-avatar");
   topAvatar.innerHTML = profile.avatar ? `<img src="${escapeLearner(profile.avatar)}" alt="">` : escapeLearner(profile.name.split(/\s+/).map((part) => part[0] || "").slice(0, 2).join("").toUpperCase());
+  topAvatar.setAttribute("aria-label", `Open profile for ${profile.name}`);
   const unread = learnerState.announcementsRead ? "" : `<span class="notification-dot"></span>`;
-  document.querySelector(".learner-notification-button").innerHTML = `♧${unread}`;
+  document.querySelector('[data-action="announcements"]').innerHTML = `♧${unread}`;
 }
 
 function renderDashboard() {
@@ -298,24 +231,30 @@ function renderDashboard() {
 }
 
 function catalogCard(course) {
-  return `<article class="catalog-card"><div class="catalog-image"><img src="${escapeLearner(course.thumbnail)}" alt="" loading="lazy"><span class="catalog-category">${escapeLearner(course.category)}</span></div><div class="catalog-body"><div class="catalog-meta"><span>${escapeLearner(course.level || "All levels")}</span><span class="catalog-rating">✦ 4.9</span></div><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.description)}</p><div class="catalog-meta"><span>${escapeLearner(course.instructor)}</span><span>${escapeLearner(course.duration || "Self-paced")}</span></div><div class="catalog-actions"><button class="learner-link-button" data-action="course-details" data-id="${escapeLearner(course.id)}">Course details</button>${button("Access course", "open-learning-course", course.id, "primary")}</div></div></article>`;
+  const objectives = (course.objectives || "").split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+  const modules = (course.modules || "").split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+  const intro = course.introduction || course.description || "Course introduction coming soon.";
+  const outline = `<details class="catalog-preview"><summary>Preview syllabus <span>${objectives.length} objectives · ${modules.length} modules</span></summary><div class="catalog-preview-content"><h4>Learning objectives</h4>${objectives.length ? `<ul>${objectives.map((item) => `<li>${escapeLearner(item)}</li>`).join("")}</ul>` : `<p>Learning objectives coming soon.</p>`}<h4>Course modules</h4>${modules.length ? `<ol>${modules.map((item) => `<li>${escapeLearner(item)}</li>`).join("")}</ol>` : `<p>Course modules coming soon.</p>`}</div></details>`;
+  return `<article class="catalog-card"><div class="catalog-image"><img src="${escapeLearner(course.thumbnail)}" alt="" loading="lazy"><span class="catalog-category">${escapeLearner(course.category)}</span></div><div class="catalog-body"><div class="catalog-meta"><span>${escapeLearner(course.level || "All levels")}</span><span class="catalog-rating">✦ 4.9</span></div><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.description)}</p><div class="catalog-introduction"><strong>Introduction</strong><p>${escapeLearner(intro)}</p></div>${outline}<div class="catalog-meta"><span>${escapeLearner(course.instructor)}</span><span>${escapeLearner(course.duration || "Self-paced")}</span></div><div class="catalog-actions"><button class="learner-link-button" data-action="course-details" data-id="${escapeLearner(course.id)}">Course details</button>${button("Access course", "open-learning-course", course.id, "primary")}</div></div></article>`;
 }
 
 function renderCatalog() {
   const available = learnerState.courses.filter((course) => course.status !== "Archived");
   const categories = ["All", ...new Set(available.map((course) => course.category))];
+  const publishedCount = available.filter((course) => course.status === "Published").length;
   const visible = available.filter((course) => (course.status === "Published" || ownsCourse(course.id))
     && (courseCategory === "All" || course.category === courseCategory)
-    && (`${course.title} ${course.description} ${course.instructor} ${course.category}`.toLowerCase().includes(courseSearch.toLowerCase())));
-  return `${pageHeading("Explore courses", "Find a skill that fits your goals. View the curriculum, meet the instructor, and choose where to begin.")}
+    && (`${course.title} ${course.description} ${course.introduction} ${course.objectives} ${course.modules} ${course.instructor} ${course.category}`.toLowerCase().includes(courseSearch.toLowerCase())));
+  return `${pageHeading("Explore courses", `${publishedCount} published courses to explore. Find a skill that fits your goals, view the curriculum, and choose where to begin.`)}
     <div class="catalog-toolbar"><div class="catalog-filters">${categories.map((category) => `<button class="catalog-filter${courseCategory === category ? " active" : ""}" data-category="${escapeLearner(category)}">${escapeLearner(category)}</button>`).join("")}</div><input class="learner-search" type="search" data-course-search placeholder="Search courses, skills or instructors…" value="${escapeLearner(courseSearch)}" aria-label="Search courses"></div>
     <div class="catalog-grid">${visible.map(catalogCard).join("") || empty("No courses found.", "Try another search or category.")}</div>`;
 }
 
 function courseDetails(course) {
-  const modules = (course.modules || "").split("\n").filter(Boolean);
+  const objectives = (course.objectives || "").split(/\r?\n/).filter(Boolean);
+  const modules = (course.modules || "").split(/\r?\n/).filter(Boolean);
   const materials = (course.materials || "").split("\n").filter(Boolean);
-  openLearnerModal(course.title, `<div class="course-detail-hero"><img src="${escapeLearner(course.thumbnail)}" alt=""><div class="course-detail-overlay"><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.category)} · ${escapeLearner(course.level || "All levels")} · ${escapeLearner(course.duration || "Self-paced")}</p></div></div><div class="detail-sections"><div class="learner-detail-box"><h3>About this course</h3><p>${escapeLearner(course.description)}</p></div><div class="learner-detail-box"><h3>Instructor</h3><p>${escapeLearner(course.instructor)}<br>SKILL-UP course instructor</p></div><div class="learner-detail-box"><h3>Course curriculum</h3><ul>${modules.map((item) => `<li>${escapeLearner(item)}</li>`).join("") || "<li>Curriculum coming soon.</li>"}</ul></div><div class="learner-detail-box"><h3>Requirements & completion</h3><p>${escapeLearner(course.requirements || "No prerequisites listed.")}</p></div><div class="learner-detail-box"><h3>Assignments & quizzes</h3><p><strong>Assignment:</strong> ${escapeLearner(course.assignments || "To be announced.")}<br><strong>Quizzes:</strong> ${escapeLearner(course.quizzes || "To be announced.")}</p></div><div class="learner-detail-box"><h3>Learning resources</h3><p>${materials.map((item) => `<a href="${escapeLearner(item)}" target="_blank" rel="noopener noreferrer">Open learning material ↗</a>`).join("<br>") || "Materials are shared in the lessons."}</p></div></div><div class="modal-actions"><button class="learner-button learner-button-soft" data-close-learner-modal>Close</button><button class="learner-button learner-button-primary" data-action="open-learning-course" data-id="${escapeLearner(course.id)}">Access course syllabus →</button></div>`);
+  openLearnerModal(course.title, `<div class="course-detail-hero"><img src="${escapeLearner(course.thumbnail)}" alt=""><div class="course-detail-overlay"><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.category)} · ${escapeLearner(course.level || "All levels")} · ${escapeLearner(course.duration || "Self-paced")}</p></div></div><div class="detail-sections"><div class="learner-detail-box"><h3>Introduction</h3><p>${escapeLearner(course.introduction || course.description || "Introduction coming soon.")}</p></div><div class="learner-detail-box"><h3>Learning objectives</h3><ul>${objectives.map((item) => `<li>${escapeLearner(item)}</li>`).join("") || "<li>Learning objectives coming soon.</li>"}</ul></div><div class="learner-detail-box"><h3>Course modules</h3><ul>${modules.map((item) => `<li>${escapeLearner(item)}</li>`).join("") || "<li>Curriculum coming soon.</li>"}</ul></div><div class="learner-detail-box"><h3>About this course</h3><p>${escapeLearner(course.description || "Course description coming soon.")}</p></div><div class="learner-detail-box"><h3>Instructor</h3><p>${escapeLearner(course.instructor)}<br>SKILL-UP course instructor</p></div><div class="learner-detail-box"><h3>Requirements & completion</h3><p>${escapeLearner(course.requirements || "No prerequisites listed.")}</p></div><div class="learner-detail-box"><h3>Assignments & quizzes</h3><p><strong>Assignment:</strong> ${escapeLearner(course.assignments || "To be announced.")}<br><strong>Quizzes:</strong> ${escapeLearner(course.quizzes || "To be announced.")}</p></div><div class="learner-detail-box"><h3>Learning resources</h3><p>${materials.map((item) => `<a href="${escapeLearner(item)}" target="_blank" rel="noopener noreferrer">Open learning material ↗</a>`).join("<br>") || "Materials are shared in the lessons."}</p></div></div><div class="modal-actions"><button class="learner-button learner-button-soft" data-close-learner-modal>Close</button><button class="learner-button learner-button-primary" data-action="open-learning-course" data-id="${escapeLearner(course.id)}">Access course syllabus →</button></div>`);
 }
 
 function renderLearning() {
@@ -325,7 +264,7 @@ function renderLearning() {
     const progress = progressPercent(course.id);
     return `<article class="learning-card"><div class="learning-card-image"><img src="${escapeLearner(course.thumbnail)}" alt="" loading="lazy"><span>${complete ? "COURSE COMPLETED" : "YOUR NEXT LESSON IS READY"}</span></div><div class="learning-card-body"><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.instructor)} · ${escapeLearner(course.duration || "Self-paced")} · Purchased ${learnerDate(learnerState.purchases.find((purchase) => purchase.courseId === course.id)?.purchasedAt)}</p><div class="learning-progress-header"><span>${complete ? "Completed" : "Course progress"}</span><strong>${progress}%</strong></div><div class="progress-track"><span style="width:${progress}%"></span></div><div class="learning-footer">${complete ? button("Course outline", "open-learning-course", course.id) : `<span class="muted">Last lesson: ${escapeLearner((course.modules || "").split("\n")[getProgress(course.id).lastLesson] || "Start learning")}</span>`}${button("Access course", "open-learning-course", course.id, "primary")}</div></div></article>`;
   }).join("");
-  return `${pageHeading("My learning", "Your learning area is limited to courses with a successful purchase in your account.", button("Find another course", "navigate-catalog", "", "soft"))}
+  return `${pageHeading("My learning", "Your learning area is limited to courses with a successful enrollment record in this browser.", button("Find another course", "navigate-catalog", "", "soft"))}
     <div class="learner-stats"><article class="learner-stat"><div class="learner-stat-top"><span>Purchased courses</span><span class="learner-stat-icon">▤</span></div><strong>${purchased.length}</strong><small>Your personal learning library</small></article><article class="learner-stat"><div class="learner-stat-top"><span>In progress</span><span class="learner-stat-icon coral">▷</span></div><strong>${activeCourses().length}</strong><small>Pick up where you left off</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Completed</span><span class="learner-stat-icon violet">✦</span></div><strong>${completedCourses().length}</strong><small>Celebrate your progress</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Lessons completed</span><span class="learner-stat-icon amber">✓</span></div><strong>${Object.values(learnerState.progress).reduce((sum, progress) => sum + (progress.completedLessons || []).length, 0)}</strong><small>Keep up the great work</small></article></div>
     <div class="learning-layout"><div class="lesson-list">${rows || `<section class="learner-panel">${empty("Your course library is empty.", "Browse the catalogue and request enrollment. An administrator will verify payment before granting access.")}</section>`}</div><div>${panel("Course resources", "Helpful links for your studies", `<div class="resource-list">${learnerState.resources.slice(0, 3).map((resource) => `<div class="resource-row"><span class="activity-icon violet">▧</span><div class="activity-copy"><strong>${escapeLearner(resource.title)}</strong><small>${escapeLearner(resource.category)}</small></div><a class="learner-link-button" href="${escapeLearner(resource.link)}" target="_blank" rel="noopener noreferrer">Open ↗</a></div>`).join("") || empty("No resources added.")}</div>`)}</div></div>`;
 }
@@ -346,17 +285,19 @@ function renderCourseRoom() {
   }
   const progress = getProgress(course.id);
   const owned = ownsCourse(course.id);
-  const lessons = (course.modules || "").split("\n").filter(Boolean);
+  const lessons = (course.modules || "").split(/\r?\n/).filter(Boolean);
+  const objectives = (course.objectives || "").split(/\r?\n/).filter(Boolean);
   const rows = lessons.map((lesson, index) => {
     const completed = owned && progress.completedLessons.includes(index);
     const current = progress.lastLesson === index && !completed;
-    return `<div class="lesson-row"><span class="lesson-play">${completed ? "✓" : "▷"}</span><div class="lesson-details"><strong>${escapeLearner(lesson)}</strong><small>Lesson ${index + 1} · ${owned ? current ? "Continue here" : completed ? "Completed" : "Learning material coming soon" : "Syllabus preview"}</small></div>${owned ? `<button class="lesson-complete" type="button" aria-pressed="${completed}" aria-label="${completed ? "Mark lesson incomplete" : "Mark lesson complete"}" data-action="toggle-lesson" data-id="${escapeLearner(course.id)}" data-lesson="${index}">${completed ? "✓" : ""}</button>` : `<span class="lesson-complete" aria-hidden="true">•</span>`}</div>`;
+    return `<div class="lesson-row"><span class="lesson-play">${completed ? "✓" : "▷"}</span><div class="lesson-details"><strong>${escapeLearner(lesson)}</strong><small>Lesson ${index + 1} · ${owned ? current ? "Continue here" : completed ? "Completed" : "Learning material coming soon" : "Syllabus demo"}</small></div>${owned ? `<button class="lesson-complete" type="button" aria-pressed="${completed}" aria-label="${completed ? "Mark lesson incomplete" : "Mark lesson complete"}" data-action="toggle-lesson" data-id="${escapeLearner(course.id)}" data-lesson="${index}">${completed ? "✓" : ""}</button>` : `<span class="lesson-complete" aria-hidden="true">•</span>`}</div>`;
   }).join("");
   const materialLinks = (course.materials || "").split("\n").filter(Boolean).map((link) => `<a class="learner-button learner-button-soft" href="${escapeLearner(link)}" target="_blank" rel="noopener noreferrer">Open course material ↗</a>`).join(" ");
   const percentage = progressPercent(course.id);
   return `${pageHeading(course.title, `${escapeLearner(course.instructor)} · Course syllabus and learning resources`, `<button class="learner-button learner-button-soft" data-action="navigate-learning">← My courses</button>`)}
-    ${owned ? notice("<strong>Purchased course access.</strong> Track lesson progress and use the course resources below.") : notice("<strong>Syllabus preview.</strong> You can review the course curriculum. Lesson tracking, assignments and quizzes require course enrollment.")}
-    <div class="learning-layout"><section class="learner-panel"><header class="learner-panel-header"><div><h2>Course syllabus</h2><p>${lessons.length} lessons${owned ? " · mark a lesson complete to track your progress" : " · preview only"}</p></div>${owned ? `<strong>${percentage}%</strong>` : ""}</header><div class="learner-panel-body">${owned ? `<div class="learner-progress-header"><span>Course completion</span><strong>${percentage}%</strong></div><div class="progress-track"><span style="width:${percentage}%"></span></div>` : ""}<div class="lesson-list" style="margin-top:13px">${rows || empty("Course curriculum is being prepared.")}</div><div class="learner-detail-box" style="margin-top:12px"><h3>Learning materials</h3><p>${owned ? materialLinks || "No downloadable materials attached to this course yet." : "Course materials are available to enrolled learners."}</p></div><div class="learner-detail-box" style="margin-top:10px"><h3>Completion requirement</h3><p>${escapeLearner(course.requirements || "Complete all lessons and submit the final project.")}</p></div></div></section><div>${owned ? panel("Your next steps", "Practice what you learn", `<div class="detail-block"><h3>Assignment</h3><p>${escapeLearner(course.assignments || "No assignment published yet.")}</p><div style="margin-top:8px">${button("Submit assignment", "assignment", course.id, "soft")}</div></div><div class="detail-block"><h3>Knowledge check</h3><p>${escapeLearner((course.quizzes || "Course fundamentals").split("\n")[0])}</p><div style="margin-top:8px">${button(learnerState.quizzes[course.id] === undefined ? "Take practice quiz" : `Best score: ${learnerState.quizzes[course.id]}%`, "quiz", course.id, "soft")}</div></div>${progress.completed ? `<div class="detail-block"><h3>Certificate earned</h3><p>Your course completion is recorded. Open certificates to view and share it.</p><div style="margin-top:8px">${button("View certificate", "navigate-certificates", "", "lime")}</div></div>` : ""}`) : panel("Course access", "Your syllabus preview", `<p class="muted">This course outline is available to all learners. Enrollment unlocks progress tracking, lessons, assignments and quizzes.</p>`)}</div></div>`;
+    ${owned ? notice("<strong>Purchased course access.</strong> Track lesson progress and use the course resources below.") : notice("<strong>Syllabus demo.</strong> You can review the course curriculum. Lesson tracking, assignments and quizzes require course enrollment.")}
+    <div class="detail-sections course-learning-overview"><div class="learner-detail-box"><h3>Introduction</h3><p>${escapeLearner(course.introduction || course.description || "Introduction coming soon.")}</p></div><div class="learner-detail-box"><h3>Learning objectives</h3><ul>${objectives.map((item) => `<li>${escapeLearner(item)}</li>`).join("") || "<li>Learning objectives coming soon.</li>"}</ul></div></div>
+    <div class="learning-layout"><section class="learner-panel"><header class="learner-panel-header"><div><h2>Course syllabus</h2><p>${lessons.length} lessons${owned ? " · mark a lesson complete to track your progress" : " · demo only"}</p></div>${owned ? `<strong>${percentage}%</strong>` : ""}</header><div class="learner-panel-body">${owned ? `<div class="learner-progress-header"><span>Course completion</span><strong>${percentage}%</strong></div><div class="progress-track"><span style="width:${percentage}%"></span></div>` : ""}<div class="lesson-list" style="margin-top:13px">${rows || empty("Course curriculum is being prepared.")}</div><div class="learner-detail-box" style="margin-top:12px"><h3>Learning materials</h3><p>${owned ? materialLinks || "No downloadable materials attached to this course yet." : "Course materials are available to enrolled learners."}</p></div><div class="learner-detail-box" style="margin-top:10px"><h3>Completion requirement</h3><p>${escapeLearner(course.requirements || "Complete all lessons and submit the final project.")}</p></div></div></section><div>${owned ? panel("Your next steps", "Practice what you learn", `<div class="detail-block"><h3>Assignment</h3><p>${escapeLearner(course.assignments || "No assignment published yet.")}</p><div style="margin-top:8px">${button("Submit assignment", "assignment", course.id, "soft")}</div></div><div class="detail-block"><h3>Knowledge check</h3><p>${escapeLearner((course.quizzes || "Course fundamentals").split("\n")[0])}</p><div style="margin-top:8px">${button(learnerState.quizzes[course.id] === undefined ? "Take practice quiz" : `Best score: ${learnerState.quizzes[course.id]}%`, "quiz", course.id, "soft")}</div></div>${progress.completed ? `<div class="detail-block"><h3>Certificate earned</h3><p>Your course completion is recorded. Open certificates to view and share it.</p><div style="margin-top:8px">${button("View certificate", "navigate-certificates", "", "lime")}</div></div>` : ""}`) : panel("Course access", "Your syllabus demo", `<p class="muted">This course outline is available to all learners. Enrollment unlocks progress tracking, lessons, assignments and quizzes.</p>`)}</div></div>`;
 }
 
 function updateCourseProgress(id, lessonIndex, markCompleted) {
@@ -389,7 +330,7 @@ function renderMentorship() {
   const instructors = [...new Set(learnerState.courses.map((course) => course.instructor).filter(Boolean))];
   const supportOptions = [...instructors, "Group training"];
   return `${pageHeading("Mentorship & support", "Book time with a mentor, join available training, and get feedback as you learn.")}
-    ${notice("Session requests and course questions are saved to Supabase and appear in the admin mentorship workspace. Email or real-time mentor notifications are not configured.")}
+    ${notice("Session requests and course questions are saved in your Supabase account. They are not sent to mentors.")}
     <div class="learner-grid"><section class="learner-panel"><header class="learner-panel-header"><div><h2>Course instructors</h2><p>Request support from an instructor listed on your courses</p></div></header><div class="learner-panel-body"><div class="mentor-list">${instructors.map((name) => `<div class="mentor-row"><span class="learner-avatar">${escapeLearner(name.split(/\s+/).map((part) => part[0] || "").slice(0, 2).join("").toUpperCase())}</span><div class="learner-mentor-copy"><strong>${escapeLearner(name)}</strong><small>Course instructor</small></div></div>`).join("") || empty("Instructor details appear when courses are published.")}</div><form data-learner-form="booking" style="margin-top:15px"><div class="mentorship-booking"><div class="learner-field full"><label for="booking-title">What would you like help with?</label><input id="booking-title" name="title" required placeholder="e.g. Review my portfolio project"></div><div class="learner-field"><label for="booking-mentor">Instructor / programme</label><select id="booking-mentor" name="mentor">${supportOptions.map((item) => `<option>${escapeLearner(item)}</option>`).join("")}</select></div><div class="learner-field"><label for="booking-course">Related course</label><select id="booking-course" name="courseId">${purchasedCourses().map((course) => `<option value="${escapeLearner(course.id)}">${escapeLearner(course.title)}</option>`).join("")}</select></div><div class="learner-field"><label for="booking-date">Preferred date</label><input id="booking-date" name="date" type="date" min="${learnerDay()}" required></div><div class="learner-field"><label for="booking-time">Preferred time</label><input id="booking-time" name="time" type="time" value="14:00" required></div></div><button class="learner-button learner-button-primary" type="submit">Request session ↗</button></form></div></section>
     ${panel("Your mentorship sessions", "Upcoming bookings and learning history", `<div class="activity-list">${sessions || empty("No sessions booked yet.", "Use the form to request a mentorship session.")}</div>`)}
     </div><div class="learner-grid">${panel("Ask a mentor", "Share a question about a purchased course", `<form data-learner-form="question"><div class="learner-field"><label for="question-course">Course</label><select id="question-course" name="courseId" required>${purchasedCourses().map((course) => `<option value="${escapeLearner(course.id)}">${escapeLearner(course.title)}</option>`).join("")}</select></div><div class="learner-field"><label for="question-text">Your question</label><textarea id="question-text" name="title" required placeholder="Tell us what you are working through…"></textarea></div><button class="learner-button learner-button-primary" type="submit">Send question</button></form>`, "")}
@@ -413,8 +354,8 @@ function renderCertificates() {
   const certificateQuery = new URLSearchParams(location.search).get("certificate");
   const verify = certificateQuery ? findCertificate(certificateQuery) : null;
   return `${pageHeading("Certificates", "Celebrate the skills you've built. Certificates are available after your course completion criteria are met.")}
-    ${notice("Certificates in this preview are sample learner records. A public verification service and official downloadable certificate are not connected.")}
-    ${certificateQuery ? `<div class="learner-panel" style="margin-bottom:14px"><div class="learner-panel-body"><strong>${verify ? "Certificate record found" : "Certificate not found"}</strong><p class="muted">${verify ? `${escapeLearner(verify.course.title)} · ${escapeLearner(verify.id)} · Learner: ${escapeLearner(learnerState.profile.name)}` : "This verification code does not match the sample learner records in this browser."}</p></div></div>` : ""}
+    ${notice("Certificates are saved with your learner account. A public verification service and official credential are not connected.")}
+    ${certificateQuery ? `<div class="learner-panel" style="margin-bottom:14px"><div class="learner-panel-body"><strong>${verify ? "Certificate record found" : "Certificate not found"}</strong><p class="muted">${verify ? `${escapeLearner(verify.course.title)} · ${escapeLearner(verify.id)} · Learner: ${escapeLearner(learnerState.profile.name)}` : "This verification code does not match a completed course in your learner account."}</p></div></div>` : ""}
     <div class="learner-stats"><article class="learner-stat"><div class="learner-stat-top"><span>Certificates earned</span><span class="learner-stat-icon amber">✦</span></div><strong>${eligible.length}</strong><small>Courses completed and eligible</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Courses completed</span><span class="learner-stat-icon violet">✓</span></div><strong>${completed.length}</strong><small>See your learning achievements</small></article></div>
     <div class="certificate-grid">${completedList || empty("Your first certificate is waiting.", "Complete a purchased course and its requirements to see your certificates here.")}</div>
     <section class="learner-panel" style="margin-top:14px"><header class="learner-panel-header"><div><h2>Certificate eligibility</h2><p>Only completed, purchased courses are considered</p></div></header><div class="learner-panel-body"><div class="activity-list">${purchasedCourses().filter((course) => !getProgress(course.id).completed).map((course) => `<div class="activity-row"><span class="activity-icon violet">▷</span><div class="activity-copy"><strong>${escapeLearner(course.title)}</strong><small>${progressPercent(course.id)}% complete · ${escapeLearner(course.requirements)}</small></div><button class="learner-link-button" data-action="open-learning-course" data-id="${escapeLearner(course.id)}">Continue</button></div>`).join("") || empty("No unfinished purchased courses.")}</div></div></section>`;
@@ -445,13 +386,13 @@ function renderReferrals() {
   const withdrawals = referral.withdrawals.map((item) => `<div class="activity-row"><span class="activity-icon amber">◷</span><div class="activity-copy"><strong>Withdrawal request · ${learnerMoney(item.amount)}</strong><small>Requested ${learnerDate(item.date)} · ${escapeLearner(item.method)}</small></div>${badge(item.status, item.status === "Pending" ? "pending" : "")}</div>`).join("");
   if (!referral.active) {
     return `${pageHeading("Referral programme", "As a learner, you can also share SKILL-UP with friends and track eligible referrals.")}
-      ${notice("Referral registrations, conversions, commissions and withdrawal requests are demo records. A production referral programme needs server-side purchase verification and payout controls.")}
-      <div class="welcome-banner"><div class="welcome-copy"><p class="learner-kicker">LEARN, SHARE & GROW TOGETHER</p><h2>Invite friends to <span>skill up.</span></h2><p>Activate your referral preview to receive a personal demo code, track local activity and see how a referral dashboard could work.</p></div><div class="welcome-mark">↗</div></div>
-      <div class="learner-grid">${panel("How the referral programme works", "A simple way to share what you're learning", `<div class="activity-list"><div class="activity-row"><span class="activity-icon">1</span><div class="activity-copy"><strong>Activate your referral account</strong><small>Generate your unique sample referral code.</small></div></div><div class="activity-row"><span class="activity-icon violet">2</span><div class="activity-copy"><strong>Share your referral link</strong><small>Invite friends to create an account on SKILL-UP.</small></div></div><div class="activity-row"><span class="activity-icon amber">3</span><div class="activity-copy"><strong>Track eligible referrals</strong><small>Successful qualifying purchases may earn a commission once verified.</small></div></div></div><div style="margin-top:12px">${button("Activate referral preview", "activate-referral", "", "primary")}</div>`)}
+      ${notice("Referral registrations, conversions, commissions and withdrawal requests are demo records. Referrals and payouts are not verified or processed in this demo.")}
+      <div class="welcome-banner"><div class="welcome-copy"><p class="learner-kicker">LEARN, SHARE & GROW TOGETHER</p><h2>Invite friends to <span>skill up.</span></h2><p>Activate your referral demo to receive a personal demo code, track local activity and see how a referral dashboard could work.</p></div><div class="welcome-mark">↗</div></div>
+      <div class="learner-grid">${panel("How the referral programme works", "A simple way to share what you're learning", `<div class="activity-list"><div class="activity-row"><span class="activity-icon">1</span><div class="activity-copy"><strong>Activate your referral demo</strong><small>Generate your unique sample referral code.</small></div></div><div class="activity-row"><span class="activity-icon violet">2</span><div class="activity-copy"><strong>Share your referral link</strong><small>Invite friends to explore the learner demo.</small></div></div><div class="activity-row"><span class="activity-icon amber">3</span><div class="activity-copy"><strong>Track sample activity</strong><small>Qualifying purchases and commissions are not verified.</small></div></div></div><div style="margin-top:12px">${button("Activate referral demo", "activate-referral", "", "primary")}</div>`) }
       ${panel("A note about rewards", "Referral activity is not a guaranteed income", `<p style="color:#7b8982;font-size:12px;line-height:1.7">Referral amounts and purchases shown in this prototype are fictional. Real commissions should only be calculated from verified successful transactions under the programme's published terms. Withdrawal requests need identity review and secure payment processing.</p>`)}</div>`;
   }
   return `${pageHeading("Your referral space", "Share your personal demo link and keep track of your referral activity.", button("Request withdrawal", "request-withdrawal", "", "primary"))}
-    ${notice("This referral dashboard is part of your learner account. Referral totals are local demo values and not verified income. No payout will be sent.")}
+    ${notice("Referral totals may include sample data and are not verified income. No payout service is connected.")}
     <div class="referral-banner"><div><h2>Good skills are worth sharing.</h2><p>Your demo partner code is ready. Share it with your network and encourage friends to explore a course.</p></div><div class="referral-code-box"><span>${escapeLearner(referral.code)}</span><button data-action="copy-referral">Copy link</button></div></div>
     <div class="referral-stats"><div class="referral-stat"><span>Registrations</span><strong>${referral.registrations}</strong></div><div class="referral-stat"><span>Course purchases</span><strong>${referral.conversions}</strong></div><div class="referral-stat"><span>Demo commission</span><strong>${learnerMoney(referral.commission)}</strong></div><div class="referral-stat"><span>Pending withdrawal</span><strong>${learnerMoney(referral.withdrawals.filter((item) => item.status === "Pending").reduce((sum, item) => sum + item.amount, 0))}</strong></div></div>
     <div class="learner-grid">${panel("Referral activity", "Sample registrations and qualifying purchases", `<div class="activity-list">${history || empty("Your referral activity will appear here.", "Share your link to get started.")}</div>`)}
@@ -461,14 +402,13 @@ function renderReferrals() {
 function renderProfile() {
   const profile = learnerState.profile;
   const purchases = learnerState.purchases.filter((purchase) => purchase.status === "Successful").map((purchase) => `<div class="activity-row"><span class="activity-icon">▤</span><div class="activity-copy"><strong>${escapeLearner(getCourse(purchase.courseId)?.title || "Course")}</strong><small>${learnerDate(purchase.purchasedAt)} · ${escapeLearner(purchase.receipt)}</small></div><strong>${learnerMoney(purchase.amount)}</strong></div>`).join("");
-  return `${pageHeading("Profile & settings", "Manage your learner profile, notification preference and course purchase history.", button("Sign out", "sign-out", "", "soft"))}
-    <div class="account-profile"><aside class="profile-card"><div class="profile-photo">${profile.avatar ? `<img src="${escapeLearner(profile.avatar)}" alt="Profile photo">` : escapeLearner(profile.name.split(/\s+/).map((item) => item[0] || "").slice(0, 2).join("").toUpperCase())}</div><h2>${escapeLearner(profile.name)}</h2><p>${escapeLearner(profile.email)}</p>${badge(profile.role)}<div><label class="learner-button learner-button-soft" for="avatar-upload">Upload profile photo</label><input id="avatar-upload" type="file" accept="image/*" hidden></div><div class="profile-save">${button("Activate referral account", "navigate-referrals", "", "soft")}</div></aside>
-    <section class="profile-edit-card"><h2>Personal information</h2><p>Update your profile and preferences for this device.</p><form data-learner-form="profile"><div class="profile-edit-grid"><div class="learner-field"><label for="profile-name">Full name</label><input id="profile-name" name="name" required minlength="2" value="${escapeLearner(profile.name)}"></div><div class="learner-field"><label for="profile-email">Sign-in email</label><input id="profile-email" name="email" readonly type="email" value="${escapeLearner(profile.email)}"></div><div class="learner-field"><label for="profile-location">Location</label><input id="profile-location" name="location" value="${escapeLearner(profile.location || "")}" placeholder="City, country"></div><div class="learner-field"><label for="profile-role">Account type</label><input id="profile-role" value="${escapeLearner(profile.role)}" readonly></div><div class="learner-field full"><label for="profile-bio">About you</label><textarea id="profile-bio" name="bio" maxlength="240">${escapeLearner(profile.bio || "")}</textarea></div></div><div class="security-row"><div><strong>Email notifications</strong><small>Receive learning and mentorship updates on this profile</small></div><input type="checkbox" name="notifications" ${profile.notifications ? "checked" : ""} aria-label="Email notifications"></div><div class="modal-actions"><button class="learner-button learner-button-primary" type="submit">Save profile</button></div></form>
-    <div class="security-row"><div><strong>Password & account security</strong><small>Supabase Auth manages your password; this app never stores it in the database.</small></div>${button("Password help", "password-help", "", "soft")}</div>
+  return `${pageHeading("Profile & settings", "Manage the learner profile associated with your account.")}
+    <div class="account-profile"><aside class="profile-card"><div class="profile-photo">${profile.avatar ? `<img src="${escapeLearner(profile.avatar)}" alt="Profile photo">` : escapeLearner(profile.name.split(/\s+/).map((item) => item[0] || "").slice(0, 2).join("").toUpperCase())}</div><h2>${escapeLearner(profile.name)}</h2><p>Connected to your SKILL-UP account</p>${badge(profile.role)}<div><label class="learner-button learner-button-soft" for="avatar-upload">Upload profile photo</label><input id="avatar-upload" type="file" accept="image/*" hidden></div><div class="profile-save">${button("Explore courses", "navigate-catalog", "", "soft")}</div></aside>
+    <section class="profile-edit-card"><h2>Personal information</h2><p>Your profile is saved to your account.</p><form data-learner-form="profile"><div class="profile-edit-grid"><div class="learner-field"><label for="profile-name">Full name</label><input id="profile-name" name="name" required minlength="2" value="${escapeLearner(profile.name)}"></div><div class="learner-field"><label for="profile-email">Email address</label><input id="profile-email" value="${escapeLearner(profile.email)}" readonly></div><div class="learner-field"><label for="profile-location">Location</label><input id="profile-location" name="location" value="${escapeLearner(profile.location || "")}" placeholder="City, country"></div><div class="learner-field full"><label for="profile-bio">About you</label><textarea id="profile-bio" name="bio" maxlength="240">${escapeLearner(profile.bio || "")}</textarea></div></div><div class="security-row"><div><strong>Learning notifications</strong><small>Preference saved in your Supabase account</small></div><input type="checkbox" name="notifications" ${profile.notifications ? "checked" : ""} aria-label="Learning notifications"></div><div class="modal-actions"><button class="learner-button learner-button-primary" type="submit">Save profile</button></div></form>
+    <div class="security-row"><div><strong>Supabase account storage</strong><small>Your profile and learning activity are saved to your authenticated account.</small></div></div>
     </section></div>
-    <section class="learner-panel" style="margin-top:14px"><header class="learner-panel-header"><div><h2>Purchase history</h2><p>Course orders in your local demo account</p></div><button class="learner-link-button" data-action="export-purchases">Download CSV ↓</button></header><div class="learner-panel-body"><div class="activity-list">${purchases || empty("No course purchases recorded.")}</div></div></section>`;
+    <section class="learner-panel" style="margin-top:14px"><header class="learner-panel-header"><div><h2>Purchase history</h2><p>Your enrollment records synced to your account</p></div><button class="learner-link-button" data-action="export-purchases">Download CSV ↓</button></header><div class="learner-panel-body"><div class="activity-list">${purchases || empty("No course purchases recorded.")}</div></div></section>`;
 }
-
 function findLearnerCertificate(id) {
   for (const course of learnerState.courses) {
     const progress = getProgress(course.id);
@@ -556,12 +496,12 @@ function checkoutModal() {
 
 function assignmentModal(course) {
   const progress = getProgress(course.id);
-  openLearnerModal("Submit a course assignment", `<div class="learner-detail-box"><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.assignments || "Share your work with your instructor for feedback.")}</p></div><form data-learner-form="assignment" data-id="${escapeLearner(course.id)}"><div class="learner-field" style="margin-top:12px"><label for="assignment-link">Project link or submission notes</label><textarea id="assignment-link" name="submission" minlength="5" required placeholder="Paste a project link or describe your submission…">${escapeLearner(progress.assignment)}</textarea></div><div class="learner-notice"><span>ⓘ</span><div>Submission is saved locally and will not be sent to a mentor in this preview.</div></div><div class="modal-actions"><button class="learner-button learner-button-soft" type="button" data-close-learner-modal>Cancel</button><button class="learner-button learner-button-primary" type="submit">Save demo submission</button></div></form>${progress.feedback ? `<div class="learner-detail-box" style="margin-top:12px"><h3>Instructor feedback</h3><p>${escapeLearner(progress.feedback)}</p></div>` : ""}`);
+  openLearnerModal("Submit a course assignment", `<div class="learner-detail-box"><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.assignments || "Share your work with your instructor for feedback.")}</p></div><form data-learner-form="assignment" data-id="${escapeLearner(course.id)}"><div class="learner-field" style="margin-top:12px"><label for="assignment-link">Project link or submission notes</label><textarea id="assignment-link" name="submission" minlength="5" required placeholder="Paste a project link or describe your submission…">${escapeLearner(progress.assignment)}</textarea></div><div class="learner-notice"><span>ⓘ</span><div>Submission is saved locally and will not be sent to a mentor in this demo.</div></div><div class="modal-actions"><button class="learner-button learner-button-soft" type="button" data-close-learner-modal>Cancel</button><button class="learner-button learner-button-primary" type="submit">Save demo submission</button></div></form>${progress.feedback ? `<div class="learner-detail-box" style="margin-top:12px"><h3>Instructor feedback</h3><p>${escapeLearner(progress.feedback)}</p></div>` : ""}`);
 }
 
 function quizModal(course) {
   const previous = learnerState.quizzes[course.id];
-  openLearnerModal("Course knowledge check", `<div class="learner-detail-box"><h3>${escapeLearner(course.title)}</h3><p>Practice question · your answer and score stay in this browser preview.</p></div><form data-learner-form="quiz" data-id="${escapeLearner(course.id)}"><p style="margin:14px 0 8px;color:#41584e;font-size:12px;font-weight:700">What is a good next step when you get stuck building a project?</p><label class="quiz-option"><input name="answer" type="radio" value="ask" required> Break the problem down, test one idea, and ask for feedback.</label><label class="quiz-option"><input name="answer" type="radio" value="skip"> Skip every challenge and copy an unrelated solution.</label><label class="quiz-option"><input name="answer" type="radio" value="stop"> Stop learning the skill altogether.</label>${previous !== undefined ? `<div class="learner-notice" style="margin-top:10px"><span>✦</span><div>Your saved practice score: <strong>${previous}%</strong>. Try again whenever you're ready.</div></div>` : ""}<div class="modal-actions"><button class="learner-button learner-button-soft" type="button" data-close-learner-modal>Close</button><button class="learner-button learner-button-primary" type="submit">Check answer</button></div></form>`);
+  openLearnerModal("Course knowledge check", `<div class="learner-detail-box"><h3>${escapeLearner(course.title)}</h3><p>Practice question · your answer and score stay in this browser demo.</p></div><form data-learner-form="quiz" data-id="${escapeLearner(course.id)}"><p style="margin:14px 0 8px;color:#41584e;font-size:12px;font-weight:700">What is a good next step when you get stuck building a project?</p><label class="quiz-option"><input name="answer" type="radio" value="ask" required> Break the problem down, test one idea, and ask for feedback.</label><label class="quiz-option"><input name="answer" type="radio" value="skip"> Skip every challenge and copy an unrelated solution.</label><label class="quiz-option"><input name="answer" type="radio" value="stop"> Stop learning the skill altogether.</label>${previous !== undefined ? `<div class="learner-notice" style="margin-top:10px"><span>✦</span><div>Your saved practice score: <strong>${previous}%</strong>. Try again whenever you're ready.</div></div>` : ""}<div class="modal-actions"><button class="learner-button learner-button-soft" type="button" data-close-learner-modal>Close</button><button class="learner-button learner-button-primary" type="submit">Check answer</button></div></form>`);
 }
 
 function showAnnouncements() {
@@ -606,20 +546,19 @@ async function handleLearnerAction(action, id, element) {
         notify("Add a course to your basket before requesting enrollment.", "error");
         return;
       }
-      const { data: requests, error } = await supabaseClient.from("enrollment_requests").insert(
-        requestedCourses.map((item) => ({ user_id: learnerAuthSession.id, course_id: item.id }))
-      ).select("id,course_id,status,requested_at");
-      if (error) {
-        notify(error.code === "23505" ? "An enrollment request for one of these courses is already pending." : `Could not submit your enrollment request: ${error.message}`, "error");
-        return;
-      }
-      learnerState.enrollmentRequests = [...requests, ...learnerState.enrollmentRequests];
-      saveLearnerState(() => {
+      const requests = requestedCourses.map((item) => ({
+        id: `ENR-${Date.now()}-${item.id}`,
+        user_id: LEARNER_ID,
+        course_id: item.id,
+        status: "Pending",
+        requested_at: new Date().toISOString()
+      }));
+      const saved = await saveLearnerState(() => {
+        learnerState.enrollmentRequests = [...requests, ...learnerState.enrollmentRequests];
         learnerState.cart = learnerState.cart.filter((courseId) => !requestedCourses.some((item) => item.id === courseId));
         addActivity("▤", "violet", "Enrollment requested", requestedCourses.map((item) => item.title).join(", "));
-      }, "");
-      closeLearnerModal();
-      notify("Enrollment request sent. An administrator will verify payment before granting course access.");
+      }, "Enrollment request saved to your account. No payment was made.");
+      if (saved) closeLearnerModal();
       break;
     }
     case "toggle-lesson": updateCourseProgress(id, Number(element.dataset.lesson), element.getAttribute("aria-pressed") !== "true"); break;
@@ -628,19 +567,18 @@ async function handleLearnerAction(action, id, element) {
     case "announcements": showAnnouncements(); break;
     case "activate-referral": {
       const code = `SKILL-${learnerState.profile.name.split(/\s+/)[0].replace(/[^a-z]/gi, "").toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-      saveLearnerState(() => { learnerState.referral.active = true; learnerState.referral.code = code; }, "Referral preview activated.");
+      saveLearnerState(() => { learnerState.referral.active = true; learnerState.referral.code = code; }, "Referral demo activated.");
       break;
     }
     case "copy-referral": {
-      const url = new URL("auth.html", window.location.href);
-      url.searchParams.set("mode", "signup");
+      const url = new URL("student.html", window.location.href);
       url.searchParams.set("ref", learnerState.referral.code);
       navigator.clipboard?.writeText(url.href).then(() => notify("Demo referral link copied.")).catch(() => notify(`Demo referral code: ${learnerState.referral.code}`));
       break;
     }
     case "request-withdrawal": {
-      if (!learnerState.referral.active) { notify("Activate the referral preview first.", "error"); return; }
-      openLearnerModal("Request a demo withdrawal", `<div class="learner-notice"><span>ⓘ</span><div>No payout will be made. Withdrawal requests are for local interface preview only.</div></div><div class="learner-field"><label for="withdrawal-amount">Request amount (demo balance ${learnerMoney(learnerState.referral.commission)})</label><input id="withdrawal-amount" name="amount" type="number" min="1" max="${Math.max(1, learnerState.referral.commission)}" value="${Math.min(learnerState.referral.commission, 5000)}"></div><div class="learner-field"><label for="withdrawal-method">Payout method</label><select id="withdrawal-method"><option>Bank transfer · demo</option><option>Mobile wallet · demo</option></select></div><div class="modal-actions"><button class="learner-button learner-button-soft" data-close-learner-modal>Cancel</button><button class="learner-button learner-button-primary" data-action="submit-withdrawal">Submit demo request</button></div>`);
+      if (!learnerState.referral.active) { notify("Activate the referral demo first.", "error"); return; }
+      openLearnerModal("Request a demo withdrawal", `<div class="learner-notice"><span>ⓘ</span><div>No payout will be made. The request is saved in Supabase for tracking.</div></div><div class="learner-field"><label for="withdrawal-amount">Request amount (demo balance ${learnerMoney(learnerState.referral.commission)})</label><input id="withdrawal-amount" name="amount" type="number" min="1" max="${Math.max(1, learnerState.referral.commission)}" value="${Math.min(learnerState.referral.commission, 5000)}"></div><div class="learner-field"><label for="withdrawal-method">Payout method</label><select id="withdrawal-method"><option>Bank transfer · demo</option><option>Mobile wallet · demo</option></select></div><div class="modal-actions"><button class="learner-button learner-button-soft" data-close-learner-modal>Cancel</button><button class="learner-button learner-button-primary" data-action="submit-withdrawal">Submit demo request</button></div>`);
       break;
     }
     case "submit-withdrawal": {
@@ -673,29 +611,21 @@ async function handleLearnerAction(action, id, element) {
     }
     case "download-certificate": downloadCertificate(id); break;
     case "share-certificate": shareCertificate(id); break;
-    case "password-help":
-      supabaseClient.auth.resetPasswordForEmail(learnerAuthSession.email, { redirectTo: `${window.location.origin}/auth.html` })
-        .then(({ error }) => error ? notify(`Could not send the reset email: ${error.message}`, "error") : notify("If email delivery is configured, a password reset link is on its way."));
-      break;
     case "export-purchases": exportPurchases(); break;
-    case "sign-out":
-      await supabaseClient.auth.signOut();
-      window.location.replace("auth.html?mode=login");
-      break;
     default: break;
   }
 }
 
 function openCertificate(course, progress) {
   const verifyURL = verificationURL(progress.certificateId);
-  openLearnerModal("Course certificate", `<div class="certificate-tile" style="text-align:center;padding:25px"><span class="certificate-seal" style="margin-inline:auto">✦</span><p style="letter-spacing:1px;font-size:12px;font-weight:700;color:#9a8b48">CERTIFICATE OF COMPLETION</p><h3 style="font-size:17px">Awarded to ${escapeLearner(learnerState.profile.name)}</h3><p>For successfully completing<br><strong>${escapeLearner(course.title)}</strong></p><p>Instructor: ${escapeLearner(course.instructor)} · ${learnerDate(learnerDay())}</p><p>Verification code: <strong>${escapeLearner(progress.certificateId)}</strong></p></div><div class="learner-notice" style="margin-top:10px"><span>ⓘ</span><div>This certificate preview is a local record, not an official credential. Verification only works in this browser.</div></div><div class="modal-actions"><button class="learner-button learner-button-soft" data-action="share-certificate" data-id="${escapeLearner(course.id)}">Copy verification link</button><button class="learner-button learner-button-primary" data-action="download-certificate" data-id="${escapeLearner(course.id)}">Download certificate</button></div>`);
+  openLearnerModal("Course certificate", `<div class="certificate-tile" style="text-align:center;padding:25px"><span class="certificate-seal" style="margin-inline:auto">✦</span><p style="letter-spacing:1px;font-size:12px;font-weight:700;color:#9a8b48">CERTIFICATE OF COMPLETION</p><h3 style="font-size:17px">Awarded to ${escapeLearner(learnerState.profile.name)}</h3><p>For successfully completing<br><strong>${escapeLearner(course.title)}</strong></p><p>Instructor: ${escapeLearner(course.instructor)} · ${learnerDate(learnerDay())}</p><p>Verification code: <strong>${escapeLearner(progress.certificateId)}</strong></p></div><div class="learner-notice" style="margin-top:10px"><span>ⓘ</span><div>This preview is saved in your learner account, but is not an official credential. Public verification is not connected.</div></div><div class="modal-actions"><button class="learner-button learner-button-soft" data-action="share-certificate" data-id="${escapeLearner(course.id)}">Copy verification link</button><button class="learner-button learner-button-primary" data-action="download-certificate" data-id="${escapeLearner(course.id)}">Download certificate</button></div>`);
 }
 
 function downloadCertificate(courseId) {
   const course = getCourse(courseId);
   const progress = course && getProgress(courseId);
   if (!course || !progress.completed || !progress.certificateId) return;
-  const text = `SKILL-UP CERTIFICATE OF COMPLETION\n\nAwarded to: ${learnerState.profile.name}\nCourse: ${course.title}\nInstructor: ${course.instructor}\nCompleted: ${learnerDate(learnerDay())}\nVerification code: ${progress.certificateId}\n\nLOCAL DEMO PREVIEW — not an official credential.`;
+  const text = `SKILL-UP CERTIFICATE OF COMPLETION\n\nAwarded to: ${learnerState.profile.name}\nCourse: ${course.title}\nInstructor: ${course.instructor}\nCompleted: ${learnerDate(learnerDay())}\nVerification code: ${progress.certificateId}\n\nPREVIEW — not an official credential.`;
   const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
   const link = document.createElement("a");
   link.href = url;
@@ -714,6 +644,7 @@ function shareCertificate(courseId) {
 }
 
 learnerNav.forEach((item) => item.addEventListener("click", () => navigateLearner(item.dataset.view)));
+document.querySelector(".learner-top-avatar").addEventListener("click", () => navigateLearner("profile"));
 learnerContent.addEventListener("click", (event) => {
   const viewButton = event.target.closest("[data-view]");
   if (viewButton) { navigateLearner(viewButton.dataset.view); return; }
@@ -749,7 +680,7 @@ document.addEventListener("submit", async (event) => {
     saveLearnerState(() => {
       learnerState.sessions.unshift({ id: `LEARN-MNT-${Date.now()}`, title: values.title.trim(), mentor: values.mentor, courseId: values.courseId, date: values.date, time: values.time, type: values.mentor === "Group training" ? "Live training" : "1:1 mentorship", status: "Scheduled", link: "" });
       addActivity("↗", "violet", "Mentorship session requested", values.title.trim());
-    }, "Session request saved to Supabase and sent to the admin mentorship queue.");
+    }, "Session request saved to your account.");
     closeLearnerModal();
     return;
   }
@@ -759,7 +690,7 @@ document.addEventListener("submit", async (event) => {
     saveLearnerState(() => {
       learnerState.questions.unshift({ id: `Q-${Date.now()}`, title: values.title.trim(), courseId: values.courseId, date: learnerDay(), status: "Pending response", answer: "" });
       addActivity("?", "violet", "Question saved", getCourse(values.courseId)?.title || "Course support");
-    }, "Your question was saved to Supabase and added to the support queue.");
+    }, "Your question was saved to your account.");
     renderLearnerView();
     return;
   }
@@ -771,7 +702,7 @@ document.addEventListener("submit", async (event) => {
       learnerState.progress[courseId].assignmentDate = learnerDay();
       learnerState.progress[courseId].feedback ||= "";
       addActivity("▤", "coral", "Assignment submitted", getCourse(courseId)?.title || "Course");
-    }, "Assignment saved to Supabase and added to the instructor review queue.");
+    }, "Assignment saved to your account.");
     closeLearnerModal();
     return;
   }
@@ -783,29 +714,27 @@ document.addEventListener("submit", async (event) => {
     return;
   }
   if (kind === "profile") {
-    const email = values.email.trim();
-    if (!values.name.trim() || values.name.trim().length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { notify("Enter a name and a valid email address.", "error"); return; }
-    const previousName = learnerAuthSession.name;
-    const updatedName = values.name.trim();
-    const { error: profileError } = await supabaseClient.from("profiles").update({ full_name: updatedName }).eq("id", learnerAuthSession.id);
-    if (profileError) {
-      notify(`Could not update your Supabase profile name: ${profileError.message}`, "error");
+    const name = values.name.trim();
+    if (name.length < 2) { notify("Enter a name with at least two characters.", "error"); return; }
+    let updatedProfile;
+    try {
+      updatedProfile = await supabaseClient.updateProfile(currentUser.id, name);
+    } catch (error) {
+      notify(`Could not update your database profile: ${error.message}`, "error");
       return;
     }
-    learnerAuthSession.name = updatedName;
+    currentUser.name = updatedProfile.full_name;
     const saved = await saveLearnerState(() => {
-      learnerState.profile.name = values.name.trim();
-      learnerState.profile.email = email;
+      learnerState.profile.name = updatedProfile.full_name;
+      learnerState.profile.email = updatedProfile.email;
       learnerState.profile.location = values.location.trim();
       learnerState.profile.bio = values.bio.trim();
       learnerState.profile.notifications = form.querySelector('[name="notifications"]').checked;
-    }, "");
-    if (saved) {
-      notify("Learner profile saved to Supabase.");
-    } else {
-      learnerAuthSession.name = previousName;
-      const { error: rollbackError } = await supabaseClient.from("profiles").update({ full_name: previousName }).eq("id", learnerAuthSession.id);
-      if (rollbackError) notify(`The workspace save failed, and the profile name could not be restored: ${rollbackError.message}`, "error");
+    }, "Learner profile saved.");
+    if (!saved) {
+      learnerState.profile.name = updatedProfile.full_name;
+      learnerState.profile.email = updatedProfile.email;
+      renderLearnerView();
     }
     return;
   }
@@ -817,7 +746,7 @@ learnerContent.addEventListener("change", (event) => {
   if (!file) return;
   if (!file.type.startsWith("image/") || file.size > 600 * 1024) { notify("Choose an image under 600 KB.", "error"); event.target.value = ""; return; }
   const reader = new FileReader();
-  reader.addEventListener("load", () => saveLearnerState(() => { learnerState.profile.avatar = String(reader.result); }, "Profile photo saved to Supabase."));
+  reader.addEventListener("load", () => saveLearnerState(() => { learnerState.profile.avatar = String(reader.result); }, "Profile photo saved."));
   reader.addEventListener("error", () => notify("The selected image could not be read.", "error"));
   reader.readAsDataURL(file);
 });
@@ -836,7 +765,7 @@ const certificateQuery = new URLSearchParams(window.location.search).get("certif
 if (certificateQuery) {
   const found = findLearnerCertificate(certificateQuery);
   activeLearnerView = "certificates";
-  if (!found) window.setTimeout(() => notify("This verification code does not match a completed course in the local preview.", "error"), 100);
+  if (!found) window.setTimeout(() => notify("This verification code does not match a completed course in your learner account.", "error"), 100);
 }
 renderLearnerView();
 })();
