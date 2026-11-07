@@ -48,6 +48,14 @@ Confirm the returned row shows `admin`. To return the account to learner access,
 
 Deploy the static files to an HTTPS web host and open the deployed `index.html`. Supabase keeps the active sign-in session in tab-scoped session storage so it survives navigation between the site's pages; application data is fetched from and saved to Supabase.
 
-The project URL and publishable key are configured in [`supabase-config.js`](./supabase-config.js). A publishable key is intended for browser use; access to private rows is restricted by the SQL row-level security policies.
+Copy `.env.example` to `.env` and set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, then generate the browser configuration:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\generate-supabase-config.ps1
+```
+
+Static hosting does not read `.env` files. The generator writes `supabase-config.js`, which the browser loads; deploy that generated file, but never deploy `.env`. Only use a publishable key here. Never place a service-role or secret key in this project.
 
 Existing accounts and application data are read from Supabase. Browser-local application data is not used.
+
+If registration reports **“Database error saving new user”**, apply all pending migrations with `powershell -ExecutionPolicy Bypass -File .\setup-supabase.ps1`. If registration still fails, inspect **Supabase Dashboard → Logs → Auth** for the database trigger error.

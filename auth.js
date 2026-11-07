@@ -32,6 +32,12 @@
         setupRequired: true
       };
     }
+    if (/database error (saving|adding) new user/i.test(error?.message || "")) {
+      return {
+        message: "Supabase could not create the learner profile. Apply the latest database migrations using the setup instructions, then check Supabase Auth logs if the issue continues.",
+        setupRequired: true
+      };
+    }
     return { message: error?.message || "Could not complete sign-in. Please try again.", setupRequired: false };
   }
 
