@@ -170,6 +170,17 @@ a { color: inherit; text-decoration: none; }
 .course-card-stats { display: flex; justify-content: space-between; padding: 9px 0; border-top: 1px solid #edf0ec; color: #85918b; font-size: 12px; }
 .course-card-stats strong { color: #50635c; }
 .course-card-actions { display: flex; justify-content: flex-end; gap: 5px; padding-top: 8px; border-top: 1px solid #edf0ec; }
+.learner-progress-list { display: grid; gap: 12px; }
+.learner-progress-row { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(100px, 1.4fr) 42px; align-items: center; gap: 12px; }
+.learner-progress-copy { min-width: 0; }
+.learner-progress-copy strong, .learner-progress-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.learner-progress-copy strong { color: #40564f; font-size: 12px; }
+.learner-progress-copy small { margin-top: 3px; color: #8a9691; font-size: 12px; }
+.learner-progress-meter { height: 7px; overflow: hidden; border-radius: 6px; background: #eaf0e9; }
+.learner-progress-meter span { display: block; height: 100%; border-radius: inherit; background: var(--admin-teal); }
+.learner-progress-percent { color: #40564f; font-size: 12px; text-align: right; }
+.student-course-progress + .student-course-progress { margin-top: 10px; }
+.student-course-progress .learner-progress-meter { margin: -4px 0 0; }
 .summary-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 15px; }
 .summary-card { padding: 13px 15px; border: 1px solid var(--admin-line); border-radius: 4px; background: white; }
 .summary-card span { display: block; color: #87938d; font-size: 12px; }
@@ -271,6 +282,7 @@ a { color: inherit; text-decoration: none; }
   .table-toolbar .field-control { flex: 1; }
   .panel-header { align-items: flex-start; flex-wrap: wrap; }
   .panel-header > .chart-controls { margin-left: auto; }
+  .learner-progress-row { grid-template-columns: minmax(100px, 1fr) minmax(70px, 1fr) 38px; gap: 8px; }
   .form-grid, .detail-grid { grid-template-columns: 1fr; }
   .form-field.full { grid-column: auto; }
   .footer-main { grid-template-columns: 1fr; }

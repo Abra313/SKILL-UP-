@@ -41,6 +41,8 @@ begin
 end;
 $$;
 
+-- Remove the obsolete trigger that writes to display_name and user_roles.
+drop trigger if exists on_auth_user_created on auth.users;
 drop trigger if exists on_auth_user_created_skill_up on auth.users;
 create trigger on_auth_user_created_skill_up
   after insert on auth.users

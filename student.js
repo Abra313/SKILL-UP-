@@ -26,6 +26,7 @@ const initialLearnerState = () => ({
   profile: { name: "", email: "", role: "Student / learner", avatar: "", location: "", bio: "", notifications: true },
   courses: [],
   purchases: [],
+  enrollments: [],
   enrollmentRequests: [],
   progress: {},
   activities: [],
@@ -47,6 +48,17 @@ function escapeLearner(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   })[character]);
+}
+
+function validMentorshipProgram(program) {
+  if (!program || program.status !== "Published" || !program.title || !program.flyer) return false;
+  try {
+    const joinUrl = new URL(program.joinLink);
+    return joinUrl.protocol === "https:" && !joinUrl.username && !joinUrl.password
+      && /^data:image\/(?:jpeg|png|webp);base64,/i.test(program.flyer);
+  } catch {
+    return false;
+  }
 }
 
 function readLearnerState(source, publicWorkspace) {
@@ -75,6 +87,9 @@ function readLearnerState(source, publicWorkspace) {
   loaded.jobs = (publicWorkspace?.jobs || []).filter((item) => item.status === "Published");
   loaded.resources = (publicWorkspace?.resources || []).filter((item) => item.status === "Published");
   loaded.announcements = (publicWorkspace?.announcements || []).filter((item) => item.status === "Published");
+  loaded.mentorshipProgram = validMentorshipProgram(publicWorkspace?.mentorshipProgram)
+    ? publicWorkspace.mentorshipProgram
+    : null;
   loaded.profile = {
     ...defaults.profile,
     ...loaded.profile,
@@ -97,6 +112,7 @@ try {
     delete snapshot.jobs;
     delete snapshot.resources;
     delete snapshot.announcements;
+    delete snapshot.mentorshipProgram;
     await supabaseClient.saveWorkspace(`learner:${currentUser.id}`, snapshot);
   }
 } catch (error) {
@@ -117,6 +133,7 @@ async function saveLearnerState(mutator, message) {
   delete snapshot.jobs;
   delete snapshot.resources;
   delete snapshot.announcements;
+  delete snapshot.mentorshipProgram;
   try {
     await supabaseClient.saveWorkspace(`learner:${currentUser.id}`, snapshot);
     persistedLearnerState = JSON.parse(JSON.stringify(learnerState));
@@ -164,7 +181,10 @@ function learnerAvatar(name, picture = "", className = "") {
 
 function getCourse(id) { return learnerState.courses.find((course) => course.id === id); }
 function getProgress(id) { return learnerState.progress[id] || { completedLessons: [], lastLesson: 0, completed: false, assignment: "", feedback: "" }; }
-function ownsCourse(id) { return learnerState.purchases.some((purchase) => purchase.courseId === id && purchase.status === "Successful"); }
+function ownsCourse(id) {
+  return learnerState.purchases.some((purchase) => purchase.courseId === id && purchase.status === "Successful")
+    || (learnerState.enrollments || []).some((enrollment) => enrollment.courseId === id && enrollment.status === "Active");
+}
 function progressPercent(id) {
   const course = getCourse(id);
   if (!course) return 0;
@@ -172,10 +192,16 @@ function progressPercent(id) {
   const state = getProgress(id);
   return state.completed ? 100 : Math.min(99, Math.round((state.completedLessons.length / count) * 100));
 }
-function purchasedCourses() { return learnerState.purchases.filter((purchase) => purchase.status === "Successful").map((purchase) => getCourse(purchase.courseId)).filter(Boolean); }
-function completedCourses() { return purchasedCourses().filter((course) => getProgress(course.id).completed); }
-function activeCourses() { return purchasedCourses().filter((course) => !getProgress(course.id).completed); }
-function selectedOrFirstOwned() { return getCourse(certificateFocus) || activeCourses()[0] || purchasedCourses()[0]; }
+function enrolledCourses() {
+  const courseIds = new Set([
+    ...learnerState.purchases.filter((purchase) => purchase.status === "Successful").map((purchase) => purchase.courseId),
+    ...(learnerState.enrollments || []).filter((enrollment) => enrollment.status === "Active").map((enrollment) => enrollment.courseId)
+  ]);
+  return [...courseIds].map(getCourse).filter(Boolean);
+}
+function completedCourses() { return enrolledCourses().filter((course) => getProgress(course.id).completed); }
+function activeCourses() { return enrolledCourses().filter((course) => !getProgress(course.id).completed); }
+function selectedOrFirstOwned() { return getCourse(certificateFocus) || activeCourses()[0] || enrolledCourses()[0]; }
 
 function pageHeading(title, description, actions = "") {
   return `<div class="learner-heading"><div><p class="learner-kicker">YOUR SKILL-UP SPACE</p><h1>${escapeLearner(title)}</h1><p>${description}</p></div><div class="learner-actions">${actions}</div></div>`;
@@ -209,18 +235,21 @@ function renderSidebarUser() {
 function renderDashboard() {
   const active = activeCourses();
   const completed = completedCourses();
-  const allOwned = purchasedCourses();
+  const allOwned = enrolledCourses();
   const overall = allOwned.length ? Math.round(allOwned.reduce((sum, course) => sum + progressPercent(course.id), 0) / allOwned.length) : 0;
   const activities = learnerState.activities.slice(0, 5).map((item) => `<div class="activity-row"><span class="activity-icon ${escapeLearner(item.tone)}">${escapeLearner(item.icon)}</span><div class="activity-copy"><strong>${escapeLearner(item.title)}</strong><small>${escapeLearner(item.detail)}</small></div><span class="activity-time">${learnerRelativeDate(item.date)}</span></div>`).join("");
   const courseRows = [...active].sort((a, b) => (getProgress(b.id).lastLesson || 0) - (getProgress(a.id).lastLesson || 0)).slice(0, 3).map((course) => `<div class="continue-item"><div class="continue-image"><img src="${escapeLearner(course.thumbnail)}" alt="" loading="lazy"></div><div class="continue-copy"><strong>${escapeLearner(course.title)}</strong><small>By ${escapeLearner(course.instructor)} · ${progressPercent(course.id)}% complete</small><div class="progress-track"><span style="width:${progressPercent(course.id)}%"></span></div></div><button class="learner-button learner-button-soft continue-button" data-action="open-learning-course" data-id="${escapeLearner(course.id)}">Access course</button></div>`).join("");
   const announcements = learnerState.announcements.slice(0, 2).map((item) => `<div class="announcement-row"><span class="activity-icon ${escapeLearner(item.tone)}">✳</span><div><strong>${escapeLearner(item.title)}</strong><p>${escapeLearner(item.body)}</p></div></div>`).join("");
+  const mentorshipProgram = learnerState.mentorshipProgram;
+  const mentorshipCard = mentorshipProgram ? `<section class="mentorship-feature" aria-label="Mentorship programme"><img class="mentorship-feature-flyer" src="${escapeLearner(mentorshipProgram.flyer)}" alt="${escapeLearner(mentorshipProgram.title)} flyer"><div class="mentorship-feature-copy"><span class="learner-kicker">MENTORSHIP PROGRAMME</span><h2>${escapeLearner(mentorshipProgram.title)}</h2>${mentorshipProgram.description ? `<p>${escapeLearner(mentorshipProgram.description)}</p>` : ""}</div><a class="learner-button learner-button-primary mentorship-feature-join" href="${escapeLearner(mentorshipProgram.joinLink)}" target="_blank" rel="noopener noreferrer">JOIN NOW</a></section>` : "";
   return `${pageHeading("Your learning overview", `Welcome back, ${escapeLearner(learnerState.profile.name.split(" ")[0])}. Every step counts—keep building your next chapter.`, button("Explore courses ↗", "navigate-catalog", "", "primary"))}
     <section class="welcome-banner"><div class="welcome-copy"><p class="learner-kicker">YOU'RE RIGHT WHERE YOU NEED TO BE</p><h2>Keep going, <span>${escapeLearner(learnerState.profile.name.split(" ")[0])}.</span></h2><p>You have ${active.length} active course${active.length === 1 ? "" : "s"} and an average learning progress of ${overall}%. A little progress adds up.</p></div><div class="welcome-mark" aria-hidden="true">✳</div></section>
+    ${mentorshipCard}
     <div class="learner-stats">
-      <article class="learner-stat"><div class="learner-stat-top"><span>Purchased courses</span><span class="learner-stat-icon">▤</span></div><strong>${allOwned.length}</strong><small>Access is limited to your purchases</small></article>
+      <article class="learner-stat"><div class="learner-stat-top"><span>Enrolled courses</span><span class="learner-stat-icon">▤</span></div><strong>${allOwned.length}</strong><small>Your personal learning library</small></article>
       <article class="learner-stat"><div class="learner-stat-top"><span>Active courses</span><span class="learner-stat-icon coral">▷</span></div><strong>${active.length}</strong><small>Keep your momentum going</small></article>
       <article class="learner-stat"><div class="learner-stat-top"><span>Completed courses</span><span class="learner-stat-icon violet">✦</span></div><strong>${completed.length}</strong><small>${completed.filter((course) => getProgress(course.id).certificateId).length} certificate${completed.filter((course) => getProgress(course.id).certificateId).length === 1 ? "" : "s"} earned</small></article>
-      <article class="learner-stat"><div class="learner-stat-top"><span>Overall progress</span><span class="learner-stat-icon amber">↗</span></div><strong>${overall}%</strong><small>Across your purchased courses</small></article>
+      <article class="learner-stat"><div class="learner-stat-top"><span>Overall progress</span><span class="learner-stat-icon amber">↗</span></div><strong>${overall}%</strong><small>Across your enrolled courses</small></article>
     </div>
     ${panel("Continue learning", "Pick up where you left off", `<div class="continue-list">${courseRows || empty("Your learning space is ready.", "Explore courses and purchase one to begin.")}</div>`, `<button class="learner-link-button" data-view="learning">View all →</button>`)}
     <div class="learner-grid">
@@ -258,15 +287,17 @@ function courseDetails(course) {
 }
 
 function renderLearning() {
-  const purchased = purchasedCourses();
-  const rows = purchased.map((course) => {
+  const enrolled = enrolledCourses();
+  const rows = enrolled.map((course) => {
     const complete = getProgress(course.id).completed;
     const progress = progressPercent(course.id);
-    return `<article class="learning-card"><div class="learning-card-image"><img src="${escapeLearner(course.thumbnail)}" alt="" loading="lazy"><span>${complete ? "COURSE COMPLETED" : "YOUR NEXT LESSON IS READY"}</span></div><div class="learning-card-body"><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.instructor)} · ${escapeLearner(course.duration || "Self-paced")} · Purchased ${learnerDate(learnerState.purchases.find((purchase) => purchase.courseId === course.id)?.purchasedAt)}</p><div class="learning-progress-header"><span>${complete ? "Completed" : "Course progress"}</span><strong>${progress}%</strong></div><div class="progress-track"><span style="width:${progress}%"></span></div><div class="learning-footer">${complete ? button("Course outline", "open-learning-course", course.id) : `<span class="muted">Last lesson: ${escapeLearner((course.modules || "").split("\n")[getProgress(course.id).lastLesson] || "Start learning")}</span>`}${button("Access course", "open-learning-course", course.id, "primary")}</div></div></article>`;
+    const enrolledAt = learnerState.enrollments?.find((enrollment) => enrollment.courseId === course.id)?.enrolledAt
+      || learnerState.purchases.find((purchase) => purchase.courseId === course.id)?.purchasedAt;
+    return `<article class="learning-card"><div class="learning-card-image"><img src="${escapeLearner(course.thumbnail)}" alt="" loading="lazy"><span>${complete ? "COURSE COMPLETED" : "YOUR NEXT LESSON IS READY"}</span></div><div class="learning-card-body"><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.instructor)} · ${escapeLearner(course.duration || "Self-paced")} · Enrolled ${learnerDate(enrolledAt?.slice(0, 10))}</p><div class="learning-progress-header"><span>${complete ? "Completed" : "Course progress"}</span><strong>${progress}%</strong></div><div class="progress-track"><span style="width:${progress}%"></span></div><div class="learning-footer">${complete ? button("Course outline", "open-learning-course", course.id) : `<span class="muted">Last lesson: ${escapeLearner((course.modules || "").split("\n")[getProgress(course.id).lastLesson] || "Start learning")}</span>`}${button("Access course", "open-learning-course", course.id, "primary")}</div></div></article>`;
   }).join("");
-  return `${pageHeading("My learning", "Your learning area is limited to courses with a successful enrollment record in this browser.", button("Find another course", "navigate-catalog", "", "soft"))}
-    <div class="learner-stats"><article class="learner-stat"><div class="learner-stat-top"><span>Purchased courses</span><span class="learner-stat-icon">▤</span></div><strong>${purchased.length}</strong><small>Your personal learning library</small></article><article class="learner-stat"><div class="learner-stat-top"><span>In progress</span><span class="learner-stat-icon coral">▷</span></div><strong>${activeCourses().length}</strong><small>Pick up where you left off</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Completed</span><span class="learner-stat-icon violet">✦</span></div><strong>${completedCourses().length}</strong><small>Celebrate your progress</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Lessons completed</span><span class="learner-stat-icon amber">✓</span></div><strong>${Object.values(learnerState.progress).reduce((sum, progress) => sum + (progress.completedLessons || []).length, 0)}</strong><small>Keep up the great work</small></article></div>
-    <div class="learning-layout"><div class="lesson-list">${rows || `<section class="learner-panel">${empty("Your course library is empty.", "Browse the catalogue and request enrollment. An administrator will verify payment before granting access.")}</section>`}</div><div>${panel("Course resources", "Helpful links for your studies", `<div class="resource-list">${learnerState.resources.slice(0, 3).map((resource) => `<div class="resource-row"><span class="activity-icon violet">▧</span><div class="activity-copy"><strong>${escapeLearner(resource.title)}</strong><small>${escapeLearner(resource.category)}</small></div><a class="learner-link-button" href="${escapeLearner(resource.link)}" target="_blank" rel="noopener noreferrer">Open ↗</a></div>`).join("") || empty("No resources added.")}</div>`)}</div></div>`;
+  return `${pageHeading("My learning", "Your courses and saved learning progress.", button("Find another course", "navigate-catalog", "", "soft"))}
+    <div class="learner-stats"><article class="learner-stat"><div class="learner-stat-top"><span>Enrolled courses</span><span class="learner-stat-icon">▤</span></div><strong>${enrolled.length}</strong><small>Your personal learning library</small></article><article class="learner-stat"><div class="learner-stat-top"><span>In progress</span><span class="learner-stat-icon coral">▷</span></div><strong>${activeCourses().length}</strong><small>Pick up where you left off</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Completed</span><span class="learner-stat-icon violet">✦</span></div><strong>${completedCourses().length}</strong><small>Celebrate your progress</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Lessons completed</span><span class="learner-stat-icon amber">✓</span></div><strong>${Object.values(learnerState.progress).reduce((sum, progress) => sum + (progress.completedLessons || []).length, 0)}</strong><small>Keep up the great work</small></article></div>
+    <div class="learning-layout"><div class="lesson-list">${rows || `<section class="learner-panel">${empty("Your course library is empty.", "Explore courses and select Access course to add one to My learning.")}</section>`}</div><div>${panel("Course resources", "Helpful links for your studies", `<div class="resource-list">${learnerState.resources.slice(0, 3).map((resource) => `<div class="resource-row"><span class="activity-icon violet">▧</span><div class="activity-copy"><strong>${escapeLearner(resource.title)}</strong><small>${escapeLearner(resource.category)}</small></div><a class="learner-link-button" href="${escapeLearner(resource.link)}" target="_blank" rel="noopener noreferrer">Open ↗</a></div>`).join("") || empty("No resources added.")}</div>`)}</div></div>`;
 }
 
 function openLearningCourse(id) {
@@ -275,6 +306,41 @@ function openLearningCourse(id) {
   certificateFocus = id;
   activeLearnerView = "course";
   renderLearnerView();
+}
+
+async function accessCourse(id) {
+  const course = getCourse(id);
+  if (!course || (course.status !== "Published" && !ownsCourse(id))) {
+    notify("This course is not currently available.", "error");
+    return;
+  }
+  if (ownsCourse(id)) {
+    openLearningCourse(id);
+    return;
+  }
+  const saved = await saveLearnerState(() => {
+    learnerState.enrollments ||= [];
+    if (!learnerState.enrollments.some((enrollment) => enrollment.courseId === id && enrollment.status === "Active")) {
+      learnerState.enrollments.push({
+        id: `ENR-${LEARNER_ID}-${id}`,
+        courseId: id,
+        status: "Active",
+        enrolledAt: new Date().toISOString()
+      });
+    }
+    learnerState.enrollmentRequests = learnerState.enrollmentRequests.map((request) =>
+      request.course_id === id && request.status === "Pending"
+        ? { ...request, status: "Cancelled", cancelled_at: new Date().toISOString() }
+        : request
+    );
+    learnerState.progress[id] ||= getProgress(id);
+    addActivity("▷", "violet", "Course enrollment started", course.title);
+  }, `${course.title} added to My learning. Progress tracking is ready.`);
+  if (saved) {
+    certificateFocus = id;
+    activeLearnerView = "course";
+    renderLearnerView();
+  }
 }
 
 function renderCourseRoom() {
@@ -295,13 +361,13 @@ function renderCourseRoom() {
   const materialLinks = (course.materials || "").split("\n").filter(Boolean).map((link) => `<a class="learner-button learner-button-soft" href="${escapeLearner(link)}" target="_blank" rel="noopener noreferrer">Open course material ↗</a>`).join(" ");
   const percentage = progressPercent(course.id);
   return `${pageHeading(course.title, `${escapeLearner(course.instructor)} · Course syllabus and learning resources`, `<button class="learner-button learner-button-soft" data-action="navigate-learning">← My courses</button>`)}
-    ${owned ? notice("<strong>Purchased course access.</strong> Track lesson progress and use the course resources below.") : notice("<strong>Syllabus demo.</strong> You can review the course curriculum. Lesson tracking, assignments and quizzes require course enrollment.")}
+    ${owned ? notice("<strong>You’re enrolled in this course.</strong> Track lesson progress and use the course resources below.") : notice("<strong>Syllabus preview.</strong> Select Access course to add this course to My learning and start tracking your progress.")}
     <div class="detail-sections course-learning-overview"><div class="learner-detail-box"><h3>Introduction</h3><p>${escapeLearner(course.introduction || course.description || "Introduction coming soon.")}</p></div><div class="learner-detail-box"><h3>Learning objectives</h3><ul>${objectives.map((item) => `<li>${escapeLearner(item)}</li>`).join("") || "<li>Learning objectives coming soon.</li>"}</ul></div></div>
     <div class="learning-layout"><section class="learner-panel"><header class="learner-panel-header"><div><h2>Course syllabus</h2><p>${lessons.length} lessons${owned ? " · mark a lesson complete to track your progress" : " · demo only"}</p></div>${owned ? `<strong>${percentage}%</strong>` : ""}</header><div class="learner-panel-body">${owned ? `<div class="learner-progress-header"><span>Course completion</span><strong>${percentage}%</strong></div><div class="progress-track"><span style="width:${percentage}%"></span></div>` : ""}<div class="lesson-list" style="margin-top:13px">${rows || empty("Course curriculum is being prepared.")}</div><div class="learner-detail-box" style="margin-top:12px"><h3>Learning materials</h3><p>${owned ? materialLinks || "No downloadable materials attached to this course yet." : "Course materials are available to enrolled learners."}</p></div><div class="learner-detail-box" style="margin-top:10px"><h3>Completion requirement</h3><p>${escapeLearner(course.requirements || "Complete all lessons and submit the final project.")}</p></div></div></section><div>${owned ? panel("Your next steps", "Practice what you learn", `<div class="detail-block"><h3>Assignment</h3><p>${escapeLearner(course.assignments || "No assignment published yet.")}</p><div style="margin-top:8px">${button("Submit assignment", "assignment", course.id, "soft")}</div></div><div class="detail-block"><h3>Knowledge check</h3><p>${escapeLearner((course.quizzes || "Course fundamentals").split("\n")[0])}</p><div style="margin-top:8px">${button(learnerState.quizzes[course.id] === undefined ? "Take practice quiz" : `Best score: ${learnerState.quizzes[course.id]}%`, "quiz", course.id, "soft")}</div></div>${progress.completed ? `<div class="detail-block"><h3>Certificate earned</h3><p>Your course completion is recorded. Open certificates to view and share it.</p><div style="margin-top:8px">${button("View certificate", "navigate-certificates", "", "lime")}</div></div>` : ""}`) : panel("Course access", "Your syllabus demo", `<p class="muted">This course outline is available to all learners. Enrollment unlocks progress tracking, lessons, assignments and quizzes.</p>`)}</div></div>`;
 }
 
 function updateCourseProgress(id, lessonIndex, markCompleted) {
-  if (!ownsCourse(id)) { notify("Purchase this course to update lesson progress.", "error"); return; }
+  if (!ownsCourse(id)) { notify("Enroll in this course to update lesson progress.", "error"); return; }
   const course = getCourse(id);
   const lessonCount = (course?.modules || "").split("\n").filter(Boolean).length;
   if (lessonIndex < 0 || lessonIndex >= lessonCount) return;
@@ -313,6 +379,7 @@ function updateCourseProgress(id, lessonIndex, markCompleted) {
     else completed.delete(lessonIndex);
     progress.completedLessons = [...completed].sort((a, b) => a - b);
     progress.lastLesson = Math.min(lessonCount - 1, lessonIndex + (markCompleted ? 1 : 0));
+    progress.updatedAt = new Date().toISOString();
     if (progress.completedLessons.length === lessonCount && lessonCount > 0) {
       progress.completed = true;
       progress.certificateId ||= `SKILLUP-${learnerToday.getFullYear()}-${id.replace("c-", "").toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
@@ -331,9 +398,9 @@ function renderMentorship() {
   const supportOptions = [...instructors, "Group training"];
   return `${pageHeading("Mentorship & support", "Book time with a mentor, join available training, and get feedback as you learn.")}
     ${notice("Session requests and course questions are saved in your Supabase account. They are not sent to mentors.")}
-    <div class="learner-grid"><section class="learner-panel"><header class="learner-panel-header"><div><h2>Course instructors</h2><p>Request support from an instructor listed on your courses</p></div></header><div class="learner-panel-body"><div class="mentor-list">${instructors.map((name) => `<div class="mentor-row"><span class="learner-avatar">${escapeLearner(name.split(/\s+/).map((part) => part[0] || "").slice(0, 2).join("").toUpperCase())}</span><div class="learner-mentor-copy"><strong>${escapeLearner(name)}</strong><small>Course instructor</small></div></div>`).join("") || empty("Instructor details appear when courses are published.")}</div><form data-learner-form="booking" style="margin-top:15px"><div class="mentorship-booking"><div class="learner-field full"><label for="booking-title">What would you like help with?</label><input id="booking-title" name="title" required placeholder="e.g. Review my portfolio project"></div><div class="learner-field"><label for="booking-mentor">Instructor / programme</label><select id="booking-mentor" name="mentor">${supportOptions.map((item) => `<option>${escapeLearner(item)}</option>`).join("")}</select></div><div class="learner-field"><label for="booking-course">Related course</label><select id="booking-course" name="courseId">${purchasedCourses().map((course) => `<option value="${escapeLearner(course.id)}">${escapeLearner(course.title)}</option>`).join("")}</select></div><div class="learner-field"><label for="booking-date">Preferred date</label><input id="booking-date" name="date" type="date" min="${learnerDay()}" required></div><div class="learner-field"><label for="booking-time">Preferred time</label><input id="booking-time" name="time" type="time" value="14:00" required></div></div><button class="learner-button learner-button-primary" type="submit">Request session ↗</button></form></div></section>
+    <div class="learner-grid"><section class="learner-panel"><header class="learner-panel-header"><div><h2>Course instructors</h2><p>Request support from an instructor listed on your courses</p></div></header><div class="learner-panel-body"><div class="mentor-list">${instructors.map((name) => `<div class="mentor-row"><span class="learner-avatar">${escapeLearner(name.split(/\s+/).map((part) => part[0] || "").slice(0, 2).join("").toUpperCase())}</span><div class="learner-mentor-copy"><strong>${escapeLearner(name)}</strong><small>Course instructor</small></div></div>`).join("") || empty("Instructor details appear when courses are published.")}</div><form data-learner-form="booking" style="margin-top:15px"><div class="mentorship-booking"><div class="learner-field full"><label for="booking-title">What would you like help with?</label><input id="booking-title" name="title" required placeholder="e.g. Review my portfolio project"></div><div class="learner-field"><label for="booking-mentor">Instructor / programme</label><select id="booking-mentor" name="mentor">${supportOptions.map((item) => `<option>${escapeLearner(item)}</option>`).join("")}</select></div><div class="learner-field"><label for="booking-course">Related course</label><select id="booking-course" name="courseId">${enrolledCourses().map((course) => `<option value="${escapeLearner(course.id)}">${escapeLearner(course.title)}</option>`).join("")}</select></div><div class="learner-field"><label for="booking-date">Preferred date</label><input id="booking-date" name="date" type="date" min="${learnerDay()}" required></div><div class="learner-field"><label for="booking-time">Preferred time</label><input id="booking-time" name="time" type="time" value="14:00" required></div></div><button class="learner-button learner-button-primary" type="submit">Request session ↗</button></form></div></section>
     ${panel("Your mentorship sessions", "Upcoming bookings and learning history", `<div class="activity-list">${sessions || empty("No sessions booked yet.", "Use the form to request a mentorship session.")}</div>`)}
-    </div><div class="learner-grid">${panel("Ask a mentor", "Share a question about a purchased course", `<form data-learner-form="question"><div class="learner-field"><label for="question-course">Course</label><select id="question-course" name="courseId" required>${purchasedCourses().map((course) => `<option value="${escapeLearner(course.id)}">${escapeLearner(course.title)}</option>`).join("")}</select></div><div class="learner-field"><label for="question-text">Your question</label><textarea id="question-text" name="title" required placeholder="Tell us what you are working through…"></textarea></div><button class="learner-button learner-button-primary" type="submit">Send question</button></form>`, "")}
+    </div><div class="learner-grid">${panel("Ask a mentor", "Share a question about an enrolled course", `<form data-learner-form="question"><div class="learner-field"><label for="question-course">Course</label><select id="question-course" name="courseId" required>${enrolledCourses().map((course) => `<option value="${escapeLearner(course.id)}">${escapeLearner(course.title)}</option>`).join("")}</select></div><div class="learner-field"><label for="question-text">Your question</label><textarea id="question-text" name="title" required placeholder="Tell us what you are working through…"></textarea></div><button class="learner-button learner-button-primary" type="submit">Send question</button></form>`, "")}
     ${panel("Questions & feedback", "A record of your recent support", `<div class="activity-list">${questions || empty("No questions yet.")}</div>`)}</div>`;
 }
 
@@ -357,8 +424,8 @@ function renderCertificates() {
     ${notice("Certificates are saved with your learner account. A public verification service and official credential are not connected.")}
     ${certificateQuery ? `<div class="learner-panel" style="margin-bottom:14px"><div class="learner-panel-body"><strong>${verify ? "Certificate record found" : "Certificate not found"}</strong><p class="muted">${verify ? `${escapeLearner(verify.course.title)} · ${escapeLearner(verify.id)} · Learner: ${escapeLearner(learnerState.profile.name)}` : "This verification code does not match a completed course in your learner account."}</p></div></div>` : ""}
     <div class="learner-stats"><article class="learner-stat"><div class="learner-stat-top"><span>Certificates earned</span><span class="learner-stat-icon amber">✦</span></div><strong>${eligible.length}</strong><small>Courses completed and eligible</small></article><article class="learner-stat"><div class="learner-stat-top"><span>Courses completed</span><span class="learner-stat-icon violet">✓</span></div><strong>${completed.length}</strong><small>See your learning achievements</small></article></div>
-    <div class="certificate-grid">${completedList || empty("Your first certificate is waiting.", "Complete a purchased course and its requirements to see your certificates here.")}</div>
-    <section class="learner-panel" style="margin-top:14px"><header class="learner-panel-header"><div><h2>Certificate eligibility</h2><p>Only completed, purchased courses are considered</p></div></header><div class="learner-panel-body"><div class="activity-list">${purchasedCourses().filter((course) => !getProgress(course.id).completed).map((course) => `<div class="activity-row"><span class="activity-icon violet">▷</span><div class="activity-copy"><strong>${escapeLearner(course.title)}</strong><small>${progressPercent(course.id)}% complete · ${escapeLearner(course.requirements)}</small></div><button class="learner-link-button" data-action="open-learning-course" data-id="${escapeLearner(course.id)}">Continue</button></div>`).join("") || empty("No unfinished purchased courses.")}</div></div></section>`;
+    <div class="certificate-grid">${completedList || empty("Your first certificate is waiting.", "Complete an enrolled course and its requirements to see your certificates here.")}</div>
+    <section class="learner-panel" style="margin-top:14px"><header class="learner-panel-header"><div><h2>Certificate eligibility</h2><p>Only completed, enrolled courses are considered</p></div></header><div class="learner-panel-body"><div class="activity-list">${enrolledCourses().filter((course) => !getProgress(course.id).completed).map((course) => `<div class="activity-row"><span class="activity-icon violet">▷</span><div class="activity-copy"><strong>${escapeLearner(course.title)}</strong><small>${progressPercent(course.id)}% complete · ${escapeLearner(course.requirements)}</small></div><button class="learner-link-button" data-action="open-learning-course" data-id="${escapeLearner(course.id)}">Continue</button></div>`).join("") || empty("No unfinished enrolled courses.")}</div></div></section>`;
 }
 
 function findCertificate(certificateId) {
@@ -531,7 +598,7 @@ async function handleLearnerAction(action, id, element) {
     case "navigate-certificates": closeLearnerModal(); navigateLearner("certificates"); break;
     case "navigate-profile": navigateLearner("profile"); break;
     case "navigate-referrals": navigateLearner("referrals"); break;
-    case "open-learning-course": closeLearnerModal(); openLearningCourse(id); break;
+    case "open-learning-course": closeLearnerModal(); await accessCourse(id); break;
     case "course-details": if (course) courseDetails(course); break;
     case "add-to-cart": addToCart(id); break;
     case "open-cart": checkoutModal(); break;
@@ -562,8 +629,8 @@ async function handleLearnerAction(action, id, element) {
       break;
     }
     case "toggle-lesson": updateCourseProgress(id, Number(element.dataset.lesson), element.getAttribute("aria-pressed") !== "true"); break;
-    case "assignment": if (course && ownsCourse(id)) assignmentModal(course); else notify("Purchase this course to submit its assignment.", "error"); break;
-    case "quiz": if (course && ownsCourse(id)) quizModal(course); else notify("Purchase this course to access quizzes.", "error"); break;
+    case "assignment": if (course && ownsCourse(id)) assignmentModal(course); else notify("Enroll in this course to submit its assignment.", "error"); break;
+    case "quiz": if (course && ownsCourse(id)) quizModal(course); else notify("Enroll in this course to access quizzes.", "error"); break;
     case "announcements": showAnnouncements(); break;
     case "activate-referral": {
       const code = `SKILL-${learnerState.profile.name.split(/\s+/)[0].replace(/[^a-z]/gi, "").toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
@@ -605,7 +672,7 @@ async function handleLearnerAction(action, id, element) {
     case "save-certificate": case "view-certificate": {
       const certificateCourse = getCourse(id);
       const progress = certificateCourse && getProgress(id);
-      if (!certificateCourse || !ownsCourse(id) || !progress.completed || !progress.certificateId) { notify("Complete this purchased course to unlock its certificate.", "error"); return; }
+      if (!certificateCourse || !ownsCourse(id) || !progress.completed || !progress.certificateId) { notify("Complete this enrolled course to unlock its certificate.", "error"); return; }
       openCertificate(certificateCourse, progress);
       break;
     }
@@ -685,7 +752,7 @@ document.addEventListener("submit", async (event) => {
     return;
   }
   if (kind === "question") {
-    if (!ownsCourse(values.courseId)) { notify("Select a purchased course before asking for course support.", "error"); return; }
+    if (!ownsCourse(values.courseId)) { notify("Select an enrolled course before asking for course support.", "error"); return; }
     if (!values.title.trim() || values.title.trim().length < 5) { notify("Please enter a little more detail about your question.", "error"); return; }
     saveLearnerState(() => {
       learnerState.questions.unshift({ id: `Q-${Date.now()}`, title: values.title.trim(), courseId: values.courseId, date: learnerDay(), status: "Pending response", answer: "" });
@@ -700,6 +767,7 @@ document.addEventListener("submit", async (event) => {
       learnerState.progress[courseId] ||= getProgress(courseId);
       learnerState.progress[courseId].assignment = values.submission.trim();
       learnerState.progress[courseId].assignmentDate = learnerDay();
+      learnerState.progress[courseId].updatedAt = new Date().toISOString();
       learnerState.progress[courseId].feedback ||= "";
       addActivity("▤", "coral", "Assignment submitted", getCourse(courseId)?.title || "Course");
     }, "Assignment saved to your account.");

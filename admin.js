@@ -100,6 +100,7 @@ const initialState = () => ({
     { id: "MNT-302", title: "AI automation: live Q&A", mentor: "Ifeanyi Okoro", student: "Group session", date: day(2), time: "16:30", type: "Live training", status: "Scheduled", link: "" },
     { id: "MNT-303", title: "Portfolio project review", mentor: "Tunde Adebayo", student: "Emeka Nnamdi", date: day(-1), time: "11:00", type: "Assignment review", status: "Completed", link: "" }
   ],
+  mentorshipProgram: { title: "", description: "", flyer: "", joinLink: "", status: "Draft" },
   reviews: [
     { id: "REV-401", type: "Assignment", title: "Responsive portfolio project", student: "Amara Okafor", course: "Frontend Development", submitted: day(-1), status: "Pending review", feedback: "" },
     { id: "REV-402", type: "Question", title: "How do I structure reusable API routes?", student: "Emeka Nnamdi", course: "Full Stack Development", submitted: day(-2), status: "Pending response", feedback: "" },
@@ -166,6 +167,7 @@ async function readData(source, learnerWorkspaces) {
     .order("created_at", { ascending: false });
   if (profilesError) throw profilesError;
   const courseById = new Map(loaded.courses.map((course) => [course.id, course]));
+  const courseProgressTotals = new Map();
   const learnerSessions = [];
   const learnerReviews = [];
   const learnerRequests = new Map((loaded.enrollmentRequests || []).map((request) => [request.id, request]));
@@ -184,7 +186,26 @@ async function readData(source, learnerWorkspaces) {
       });
     }
     const purchases = [...purchasesByCourse.values()];
-    const progressEntries = Object.entries(learner?.progress || {});
+    const enrolledCourseIds = new Set([
+      ...purchases.filter((purchase) => purchase.status === "Successful").map((purchase) => purchase.courseId),
+      ...(learner?.enrollments || []).filter((enrollment) => enrollment.status === "Active").map((enrollment) => enrollment.courseId)
+    ]);
+    const courseProgress = {};
+    for (const courseId of enrolledCourseIds) {
+      const progress = learner?.progress?.[courseId] || {};
+      const lessonCount = (courseById.get(courseId)?.modules || "").split(/\r?\n/).filter(Boolean).length;
+      const completedLessons = new Set((Array.isArray(progress.completedLessons) ? progress.completedLessons : []).filter((lessonIndex) =>
+        Number.isInteger(lessonIndex) && lessonIndex >= 0 && lessonIndex < lessonCount
+      ));
+      const percentage = progress.completed
+        ? 100
+        : lessonCount ? Math.round((completedLessons.size / lessonCount) * 100) : 0;
+      courseProgress[courseId] = { percentage, updatedAt: progress.updatedAt || "" };
+      const totals = courseProgressTotals.get(courseId) || { sum: 0, count: 0 };
+      totals.sum += percentage;
+      totals.count += 1;
+      courseProgressTotals.set(courseId, totals);
+    }
     const student = loaded.students.find((item) => item.id === userId) || {
       id: userId, joined: day(0), status: "Active", courses: [], progress: 0
     };
@@ -192,12 +213,11 @@ async function readData(source, learnerWorkspaces) {
       name: account.full_name,
       email: account.email,
       joined: account.created_at?.slice(0, 10) || student.joined,
-      courses: purchases.filter((purchase) => purchase.status === "Successful").map((purchase) => purchase.courseId),
-      progress: progressEntries.length ? Math.round(progressEntries.reduce((sum, [courseId, item]) => {
-        if (item.completed) return sum + 100;
-        const lessonCount = (courseById.get(courseId)?.modules || "").split("\n").filter(Boolean).length;
-        return sum + (lessonCount ? Math.round(((item.completedLessons || []).length / lessonCount) * 100) : 0);
-      }, 0) / progressEntries.length) : 0,
+      courses: [...enrolledCourseIds],
+      courseProgress,
+      progress: enrolledCourseIds.size
+        ? Math.round(Object.values(courseProgress).reduce((sum, item) => sum + item.percentage, 0) / enrolledCourseIds.size)
+        : 0,
       source: "supabase"
     });
     if (!loaded.students.includes(student)) loaded.students.unshift(student);
@@ -274,6 +294,11 @@ async function readData(source, learnerWorkspaces) {
   loaded.enrollmentRequests = [...learnerRequests.values()];
   loaded.sessions = [...loaded.sessions.filter((session) => session.source !== "learner"), ...learnerSessions];
   loaded.reviews = [...loaded.reviews.filter((review) => review.source !== "learner"), ...learnerReviews];
+  loaded.courses.forEach((course) => {
+    course.enrolled = loaded.students.filter((student) => student.courses?.includes(course.id)).length;
+    const totals = courseProgressTotals.get(course.id);
+    if (totals?.count) course.completion = Math.round(totals.sum / totals.count);
+  });
   return loaded;
 }
 const seedRecordIds = {
@@ -386,6 +411,7 @@ function publicWorkspace(workspace) {
     announcements: workspace.announcements.filter((item) => item.status === "Published"),
     faqs: workspace.faqs.filter((item) => item.status === "Published"),
     testimonials: workspace.testimonials.filter((item) => item.status === "Published"),
+    mentorshipProgram: workspace.mentorshipProgram?.status === "Published" ? workspace.mentorshipProgram : null,
     siteContent: workspace.siteContent
   };
 }
@@ -583,6 +609,10 @@ function chartMarkup() {
 
 function renderDashboard() {
   const enrolledStudents = state.students.filter((item) => item.courses.length > 0).length;
+  const registeredLearners = state.students.filter((item) => item.source === "supabase");
+  const averageProgress = registeredLearners.length
+    ? Math.round(registeredLearners.reduce((sum, item) => sum + item.progress, 0) / registeredLearners.length)
+    : 0;
   const revenue = state.payments.filter((item) => item.status === "Successful").reduce((sum, item) => sum + item.amount, 0);
   const commission = state.referrals.reduce((sum, item) => sum + item.commission, 0);
   const pendingWithdrawals = state.withdrawals.filter((item) => item.status === "Pending").length;
@@ -600,18 +630,27 @@ function renderDashboard() {
   const stats = statData.map(([label, value, icon, foot, color]) => `<article class="stat-card"><div class="stat-top"><span class="stat-label">${label}</span><span class="stat-icon ${color}">${icon}</span></div><strong class="stat-value">${value}</strong><div class="stat-foot"><span>${foot}</span></div></article>`).join("");
   const transactions = [...state.payments].sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).slice(0, 5).map((payment, index) => `<div class="activity-item">${avatar(studentName(payment.studentId), ["", "avatar-rose", "avatar-blue", "avatar-violet", "avatar-amber"][index])}<div class="activity-copy"><strong>${escapeHTML(studentName(payment.studentId))} · ${escapeHTML(courseName(payment.courseId))}</strong><small>${escapeHTML(payment.id)} · ${relativeDate(payment.date)}</small></div><span class="activity-amount">${payment.status === "Successful" ? money(payment.amount) : statusBadge(payment.status)}</span></div>`).join("");
   const registrations = [...state.students].sort((a, b) => b.joined.localeCompare(a.joined)).slice(0, 5).map((student, index) => `<div class="activity-item">${avatar(student.name, ["avatar-blue", "avatar-rose", "avatar-violet", "avatar-amber", ""][index])}<div class="activity-copy"><strong>${escapeHTML(student.name)}</strong><small>${escapeHTML(student.email)}</small></div><span class="muted">${relativeDate(student.joined)}</span></div>`).join("");
+  const learnerProgress = registeredLearners.flatMap((student) => student.courses.map((courseId) => ({
+    student,
+    course: courseById(courseId),
+    progress: student.courseProgress?.[courseId] || { percentage: 0, updatedAt: "" }
+  }))).filter((entry) => entry.course)
+    .sort((a, b) => String(b.progress.updatedAt).localeCompare(String(a.progress.updatedAt)))
+    .slice(0, 6)
+    .map(({ student, course, progress }) => `<div class="learner-progress-row"><div class="learner-progress-copy"><strong>${escapeHTML(student.name)}</strong><small>${escapeHTML(course.title)}</small></div><div class="learner-progress-meter" role="progressbar" aria-label="${escapeHTML(student.name)} progress in ${escapeHTML(course.title)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress.percentage}"><span style="width:${progress.percentage}%"></span></div><strong class="learner-progress-percent">${progress.percentage}%</strong></div>`).join("");
   const rangeLabel = { day: "Today", week: "This week", month: "This month" }[chartRange];
   return `${heading("Dashboard overview", `Welcome back, ${escapeHTML(adminDisplayName)}. Here's what's happening across your learning platform today.`, `<button class="button button-soft" data-action="refresh-dashboard"><span class="button-icon">↻</span> Refresh data</button><button class="button button-soft" data-action="export-report"><span class="button-icon">↓</span> Export report</button>`)}
     <section class="stats-grid" aria-label="Platform totals">${stats}</section>
     <div class="dashboard-grid">
       <section class="panel"><div class="panel-header"><div><h2>Enrollment value</h2><p>${rangeLabel} approved enrollment records · not payment revenue</p></div><div class="chart-controls" role="group" aria-label="Chart time range">${["day", "week", "month"].map((range) => `<button class="chart-range${chartRange === range ? " active" : ""}" data-range="${range}">${{ day: "Daily", week: "Weekly", month: "Monthly" }[range]}</button>`).join("")}</div></div><div class="panel-body"><div class="chart-legend"><span><i class="legend-dot"></i>Recorded enrollment value</span><span class="muted">NGN</span></div><div class="chart-wrap">${chartMarkup()}</div></div></section>
       <section class="panel"><div class="panel-header"><div><h2>Performance snapshot</h2><p>${rangeLabel} platform health</p></div></div><div class="panel-body"><div class="insights-list">
-        <div class="insight-row"><span>Approved enrollments</span><strong>${successfulPayments}</strong></div><div class="insight-row"><span>Pending enrollment requests</span><strong>${state.enrollmentRequests.filter((item) => item.status === "Pending").length}</strong></div><div class="insight-row"><span>Rejected enrollment requests</span><strong>${state.enrollmentRequests.filter((item) => item.status === "Rejected").length}</strong></div><div class="insight-row"><span>Average learner progress</span><strong>${state.students.length ? Math.round(state.students.reduce((sum, item) => sum + item.progress, 0) / state.students.length) : 0}%</strong></div></div><div class="insight-note"><b>↗</b><span>Enrollment approval records course access. Payment must be verified independently until a gateway is integrated.</span></div></div></section>
+        <div class="insight-row"><span>Approved enrollments</span><strong>${successfulPayments}</strong></div><div class="insight-row"><span>Pending enrollment requests</span><strong>${state.enrollmentRequests.filter((item) => item.status === "Pending").length}</strong></div><div class="insight-row"><span>Rejected enrollment requests</span><strong>${state.enrollmentRequests.filter((item) => item.status === "Rejected").length}</strong></div><div class="insight-row"><span>Average learner progress</span><strong>${averageProgress}%</strong></div></div><div class="insight-note"><b>↗</b><span>Enrollment approval records course access. Payment must be verified independently until a gateway is integrated.</span></div></div></section>
     </div>
     <div class="two-panels">
       <section class="panel"><div class="panel-header"><div><h2>Recent enrollments</h2><p>Latest approved course access records</p></div><button class="view-all" data-view="finance">View all →</button></div><div class="panel-body"><div class="activity-list">${transactions || `<div class="empty-state">No enrollments recorded yet.</div>`}</div></div></section>
       <section class="panel"><div class="panel-header"><div><h2>New student registrations</h2><p>Latest learner accounts</p></div><button class="view-all" data-view="students">View all →</button></div><div class="panel-body"><div class="activity-list">${registrations || `<div class="empty-state">No students registered yet.</div>`}</div></div></section>
-    </div>`;
+    </div>
+    <section class="panel"><div class="panel-header"><div><h2>Learner course progress</h2><p>Progress from registered learners' course workspaces</p></div><button class="view-all" data-view="students">View students →</button></div><div class="panel-body"><div class="learner-progress-list">${learnerProgress || `<div class="empty-state">Course progress will appear here when learners enroll and complete lessons.</div>`}</div></div></section>`;
 }
 
 function renderCourses() {
@@ -675,6 +714,7 @@ function renderMentorship() {
   const reviewRows = state.reviews.map((review) => `<tr><td>${statusBadge(review.type)}</td><td><strong>${escapeHTML(review.title)}</strong><small class="muted"><br>${escapeHTML(review.course)}</small></td><td>${escapeHTML(review.student)}</td><td>${dateLabel(review.submitted)}</td><td>${statusBadge(review.status)}</td><td><button class="text-button" data-action="review-submission" data-id="${review.id}">${review.status === "Reviewed" || review.status === "Responded" ? "View feedback" : review.type === "Question" ? "Respond" : "Review"}</button></td></tr>`).join("");
   const toolbar = `<div class="toolbar-left"><span class="muted">${state.sessions.filter((session) => session.status === "Scheduled").length} scheduled sessions · ${state.sessions.filter((session) => session.status === "Completed").length} completed</span></div>`;
   return `${heading("Mentorship management", "Schedule mentor sessions, live training and assignment-review appointments.", `<button class="button button-primary" data-action="add-session"><span class="button-icon">＋</span> Schedule session</button>`)}
+    <section class="panel data-panel"><div class="panel-header"><div><h2>Mentorship programme flyer</h2><p>${state.mentorshipProgram.status === "Published" ? "Visible on learner dashboards" : "Currently hidden from learners"}</p></div><button class="button button-soft button-small" data-action="edit-mentorship-program">${state.mentorshipProgram.title ? "Edit flyer & link" : "Add flyer & link"}</button></div><div class="panel-body">${state.mentorshipProgram.title ? `<div class="activity-item">${state.mentorshipProgram.flyer ? `<img src="${escapeHTML(state.mentorshipProgram.flyer)}" alt="" style="width:120px;max-height:80px;object-fit:cover;border-radius:4px">` : ""}<div class="activity-copy"><strong>${escapeHTML(state.mentorshipProgram.title)}</strong><small>${escapeHTML(state.mentorshipProgram.joinLink)}</small></div>${statusBadge(state.mentorshipProgram.status)}</div>` : `<div class="empty-state">Add a programme flyer, details and join link to feature it on learner dashboards.</div>`}</div></section>
     ${tableShell(toolbar, ["Session", "Mentor", "Student / group", "Date & time", "Session link", "Status", "Actions"], rows, "No mentorship sessions scheduled.")}
     <section class="panel data-panel"><div class="panel-header"><div><h2>Student questions & assignment reviews</h2><p>Respond to learner questions and review practical submissions</p></div><button class="button button-soft button-small" data-action="add-review">＋ Add submission</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Type</th><th>Submission</th><th>Student</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead><tbody>${reviewRows || `<tr><td class="table-empty" colspan="6">No submissions waiting for review.</td></tr>`}</tbody></table></div></section>`;
 }
@@ -763,7 +803,7 @@ function closeModal() {
 }
 
 function field(label, name, value = "", options = {}) {
-  const { type = "text", full = false, required = false, placeholder = "", help = "", choices = [], rows = 4, min, max, step } = options;
+  const { type = "text", full = false, required = false, placeholder = "", help = "", choices = [], rows = 4, min, max, step, accept } = options;
   if (type === "checkbox") {
     return `<div class="form-field${full ? " full" : ""} checkbox-field"><label for="field-${name}"><input id="field-${name}" name="${name}" type="checkbox" value="true"${value ? " checked" : ""}><span>${label}</span></label>${help ? `<span class="help-text">${help}</span>` : ""}</div>`;
   }
@@ -774,7 +814,7 @@ function field(label, name, value = "", options = {}) {
   } else if (type === "textarea") {
     input = `<textarea id="field-${name}" name="${name}" rows="${rows}" placeholder="${escapeHTML(placeholder)}"${required ? " required" : ""}>${escapeHTML(value)}</textarea>`;
   } else {
-    input = `<input id="field-${name}" name="${name}" type="${type}" value="${escapeHTML(value)}" placeholder="${escapeHTML(placeholder)}"${required ? " required" : ""}${min !== undefined ? ` min="${min}"` : ""}${max !== undefined ? ` max="${max}"` : ""}${step !== undefined ? ` step="${step}"` : ""}>`;
+    input = `<input id="field-${name}" name="${name}" type="${type}" value="${escapeHTML(value)}" placeholder="${escapeHTML(placeholder)}"${required ? " required" : ""}${min !== undefined ? ` min="${min}"` : ""}${max !== undefined ? ` max="${max}"` : ""}${step !== undefined ? ` step="${step}"` : ""}${accept ? ` accept="${escapeHTML(accept)}"` : ""}>`;
   }
   return `<div class="form-field${full ? " full" : ""}">${labelMarkup}${input}${help ? `<span class="help-text">${help}</span>` : ""}</div>`;
 }
@@ -809,7 +849,8 @@ function studentDetails(student) {
   const purchased = state.payments.filter((payment) => payment.studentId === student.id);
   const courses = student.courses.map((id) => {
     const course = courseById(id);
-    return course ? `<div class="insight-row"><span>${escapeHTML(course.title)}</span><strong>${student.progress}%</strong></div>` : "";
+    const percentage = student.courseProgress?.[id]?.percentage ?? student.progress;
+    return course ? `<div class="student-course-progress"><div class="insight-row"><span>${escapeHTML(course.title)}</span><strong>${percentage}%</strong></div><div class="learner-progress-meter" role="progressbar" aria-label="${escapeHTML(course.title)} progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percentage}"><span style="width:${percentage}%"></span></div></div>` : "";
   }).join("");
   const payments = purchased.map((payment) => `<div class="insight-row"><span>${escapeHTML(payment.id)} · ${dateLabel(payment.date)}</span><strong>${money(payment.amount)} · ${escapeHTML(payment.status)}</strong></div>`).join("");
   openModal("Student profile", `<div class="detail-grid"><div class="detail-cell"><span>Name</span><strong>${escapeHTML(student.name)}</strong></div><div class="detail-cell"><span>Email</span><strong>${escapeHTML(student.email)}</strong></div><div class="detail-cell"><span>Profile</span><strong>${escapeHTML(student.status)}</strong></div><div class="detail-cell"><span>Joined</span><strong>${dateLabel(student.joined)}</strong></div><div class="detail-cell"><span>Enrolled courses</span><strong>${student.courses.length}</strong></div><div class="detail-cell"><span>Learning progress</span><strong>${student.progress}% average</strong></div></div><div class="detail-block"><h3>Courses & progress</h3>${courses || `<p>No course enrollments recorded.</p>`}</div><div class="detail-block"><h3>Enrollment records</h3>${payments || `<p>No approved enrollments recorded.</p>`}</div><div class="form-actions"><button class="button button-soft" data-close-modal>Close</button></div>`);
@@ -962,6 +1003,7 @@ async function handleAction(action, id) {
       break;
     }
     case "add-session": formModal("Schedule mentorship session", "session", "", sessionForm(), "Schedule session"); break;
+    case "edit-mentorship-program": formModal("Mentorship programme flyer", "mentorship-program", "", mentorshipProgramForm(), "Save programme"); break;
     case "add-review": formModal("Add student question or assignment", "review", "", reviewForm(), "Add to review queue"); break;
     case "review-submission": {
       const review = state.reviews.find((item) => item.id === id);
@@ -1060,6 +1102,17 @@ function sessionForm(session = {}) {
   ].join("");
 }
 
+function mentorshipProgramForm(program = state.mentorshipProgram) {
+  return [
+    field("Programme title", "title", program.title || "", { required: true, full: true }),
+    field("Description", "description", program.description || "", { type: "textarea", full: true, rows: 3 }),
+    field("Flyer image", "flyerFile", "", { type: "file", full: true, accept: ".jpg,.jpeg,.png,.webp", help: "Upload a JPG, PNG or WebP image up to 1 MB." }),
+    program.flyer ? field("Remove current flyer", "removeFlyer", false, { type: "checkbox", full: true }) : "",
+    field("Join link (HTTPS)", "joinLink", program.joinLink || "", { type: "url", full: true, required: true, placeholder: "https://…" }),
+    field("Visibility", "status", program.status || "Draft", { type: "select", choices: ["Draft", "Published"], full: true })
+  ].join("");
+}
+
 function jobForm(job = {}) {
   return [
     field("Opportunity title", "title", job.title || "", { required: true }),
@@ -1138,6 +1191,50 @@ async function handleFormSubmit(form) {
       const reader = new FileReader();
       reader.addEventListener("load", () => save(String(reader.result)));
       reader.addEventListener("error", () => notify("Could not read this image file.", "error"));
+      reader.readAsDataURL(file);
+    } else save();
+    return;
+  }
+  if (kind === "mentorship-program") {
+    const file = form.querySelector('[name="flyerFile"]').files[0];
+    const allowedImageTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (file && (!allowedImageTypes.includes(file.type) || file.size > 1024 * 1024)) {
+      notify("Choose a JPG, PNG or WebP image under 1 MB.", "error");
+      return;
+    }
+    let joinUrl;
+    try {
+      joinUrl = new URL(values.joinLink.trim());
+    } catch {
+      notify("Enter a valid HTTPS join link.", "error");
+      return;
+    }
+    if (joinUrl.protocol !== "https:" || joinUrl.username || joinUrl.password) {
+      notify("The mentorship join link must use HTTPS.", "error");
+      return;
+    }
+    const save = (uploadedFlyer = "") => {
+      const flyer = uploadedFlyer || (values.removeFlyer === "true" ? "" : state.mentorshipProgram.flyer || "");
+      const program = {
+        title: values.title.trim(),
+        description: values.description.trim(),
+        flyer,
+        joinLink: joinUrl.href,
+        status: values.status
+      };
+      if (!program.title || (program.status === "Published" && !program.flyer)) {
+        notify("Add a title and flyer before publishing the mentorship programme.", "error");
+        return;
+      }
+      if (commit(() => {
+        state.mentorshipProgram = program;
+        addAudit(`Mentorship programme ${program.status.toLowerCase()}: ${program.title}`);
+      }, "Mentorship programme saved.")) closeModal();
+    };
+    if (file) {
+      const reader = new FileReader();
+      reader.addEventListener("load", () => save(String(reader.result)));
+      reader.addEventListener("error", () => notify("Could not read this flyer image.", "error"));
       reader.readAsDataURL(file);
     } else save();
     return;

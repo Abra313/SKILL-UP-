@@ -34,8 +34,8 @@
     }
     if (/database error (saving|adding) new user/i.test(error?.message || "")) {
       return {
-        message: "Supabase could not create the learner profile. Apply the latest database migrations using the setup instructions, then check Supabase Auth logs if the issue continues.",
-        setupRequired: true
+        message: "We couldn’t finish setting up your account. Please try again shortly. If the problem continues, contact support.",
+        setupRequired: false
       };
     }
     return { message: error?.message || "Could not complete sign-in. Please try again.", setupRequired: false };
