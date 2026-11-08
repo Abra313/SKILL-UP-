@@ -2,7 +2,7 @@
   if (!window.skillUpSupabase) {
     window.skillUpAuth = {
       async requireRole() {
-        window.location.replace(`auth.html?mode=login&error=${encodeURIComponent(window.skillUpSupabaseError || "Supabase could not be loaded.")}`);
+        window.location.replace(`auth.html?mode=login&error=${encodeURIComponent(window.skillUpSupabaseError || "The account service could not be loaded.")}`);
         return null;
       },
       async signOut() { window.location.replace("auth.html?mode=login"); }
@@ -12,7 +12,7 @@
   const { client, getProfile } = window.skillUpSupabase;
   if (!client?.auth || typeof client.auth.getSession !== "function" ||
       typeof client.auth.signOut !== "function" || typeof getProfile !== "function") {
-    window.skillUpSupabaseError = "Supabase authentication could not be initialized. Refresh the page and check the Supabase client library.";
+    window.skillUpSupabaseError = "Account authentication could not be initialized. Refresh the page and check the account service.";
     window.skillUpAuth = {
       async requireRole() {
         window.location.replace(`auth.html?mode=login&error=${encodeURIComponent(window.skillUpSupabaseError)}`);
@@ -43,12 +43,26 @@
       session = await getSession();
     } catch (error) {
       console.error("Could not validate the Supabase session:", error);
-      window.location.replace(`auth.html?mode=login&error=${encodeURIComponent("Could not verify your account. Check the Supabase setup and try again.")}`);
+      window.location.replace(`auth.html?mode=login&error=${encodeURIComponent("Could not verify your account. Check the account service setup and try again.")}`);
       return null;
     }
     if (!session || session.role !== role) {
       window.location.replace("auth.html?mode=login");
       return null;
+    }
+    if (client.auth.mfa?.getAuthenticatorAssuranceLevel) {
+      try {
+        const { data: assurance, error } = await client.auth.mfa.getAuthenticatorAssuranceLevel();
+        if (error) throw error;
+        if (assurance.nextLevel === "aal2" && assurance.currentLevel !== "aal2") {
+          window.location.replace("auth.html?mode=mfa");
+          return null;
+        }
+      } catch (error) {
+        console.error("Could not verify the account's multi-factor assurance level:", error);
+        window.location.replace(`auth.html?mode=login&error=${encodeURIComponent("Could not verify your security level. Sign in again.")}`);
+        return null;
+      }
     }
     return session;
   }

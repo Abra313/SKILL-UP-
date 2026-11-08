@@ -20,7 +20,7 @@ const pageNames = {
   finance: "Payments & finance",
   referrals: "Referrals",
   mentorship: "Mentorship",
-  settings: "Settings & security"
+  security: "Security & Privacy"
 };
 const today = new Date();
 const day = (offset) => {
@@ -84,17 +84,8 @@ const initialState = () => ({
     { id: "TXN-80412", studentId: "s-1003", courseId: "c-graphics", amount: 5000, fee: 175, status: "Successful", date: day(-7), method: "Transfer" }
   ],
   enrollmentRequests: [],
-  referrals: [
-    { id: "REF-2101", name: "Kemi Balogun", email: "kemi.b@example.com", code: "KEMI-LEARN", referrals: 18, conversions: 12, commission: 36000, status: "Active" },
-    { id: "REF-2102", name: "Tobi Adeyemi", email: "tobi.a@example.com", code: "TOBI-SKILL", referrals: 11, conversions: 8, commission: 24000, status: "Active" },
-    { id: "REF-2103", name: "Amara Okafor", email: "amara.okafor@example.com", code: "AMARA-UP", referrals: 7, conversions: 5, commission: 15000, status: "Active" },
-    { id: "REF-2104", name: "Femi Johnson", email: "femi.j@example.com", code: "FEMI-TECH", referrals: 3, conversions: 1, commission: 3000, status: "Review" }
-  ],
-  withdrawals: [
-    { id: "WDR-0931", partner: "Kemi Balogun", amount: 12000, requested: day(-1), status: "Pending", account: "•••• 4812" },
-    { id: "WDR-0930", partner: "Tobi Adeyemi", amount: 8000, requested: day(-2), status: "Pending", account: "•••• 2901" },
-    { id: "WDR-0929", partner: "Amara Okafor", amount: 5000, requested: day(-5), status: "Approved", account: "•••• 6673" }
-  ],
+  referrals: [],
+  withdrawals: [],
   sessions: [
     { id: "MNT-301", title: "Getting started with frontend projects", mentor: "Ada Okafor", student: "Amara Okafor", date: day(1), time: "14:00", type: "1:1 mentorship", status: "Scheduled", link: "" },
     { id: "MNT-302", title: "AI automation: live Q&A", mentor: "Ifeanyi Okoro", student: "Group session", date: day(2), time: "16:30", type: "Live training", status: "Scheduled", link: "" },
@@ -129,15 +120,13 @@ const initialState = () => ({
     { id: "TST-01", name: "Amara O.", quote: "The project feedback helped me understand how to improve my portfolio.", role: "Frontend learner", status: "Published" },
     { id: "TST-02", name: "Kemi B.", quote: "Having a clear learning path made it easier to keep moving forward.", role: "Digital skills learner", status: "Draft" }
   ],
-  campaigns: [],
   announcements: [],
-  siteContent: { headline: "Learn digital skills. Get mentored. Build your career.", announcement: "", bannerUrl: "", contactEmail: "hello@skill-up.ng", privacyPolicy: "", terms: "" },
+  siteContent: { headline: "Learn digital skills. Get mentored. Build your career.", announcement: "", bannerUrl: "", contactEmail: "hello@skill-up.ng", privacyPolicy: "", terms: "", cookiePolicy: "", dataProcessingPolicy: "", dataRetentionPolicy: "", dpoContact: "" },
   activity: [
     { id: "ACT-01", message: "Course published: UI/UX Design", by: "Site Admin", date: day(0) },
-    { id: "ACT-02", message: "Withdrawal request submitted by Kemi Balogun", by: "Referral programme", date: day(-1) },
     { id: "ACT-03", message: "New mentorship session scheduled", by: "Ada Okafor", date: day(-1) }
   ],
-  settings: { referralRate: 15, gateway: "Paystack (demo)", emailNotifications: true, maintenanceMode: false },
+  settings: { gateway: "Paystack (demo)", emailNotifications: true, maintenanceMode: false },
   audit: [{ id: "LOG-001", action: "Sample workspace initialized", by: "Site Admin", date: day(0) }]
 });
 
@@ -151,6 +140,7 @@ async function readData(source, learnerWorkspaces) {
   const defaults = initialState();
   source ||= defaults;
   const loaded = Object.fromEntries(Object.keys(defaults).map((key) => [key, source[key] ?? defaults[key]]));
+  loaded.siteContent = { ...defaults.siteContent, ...(source.siteContent || {}) };
   if (!source.catalogInitialized) {
     const savedCourseIds = new Set(loaded.courses.map((course) => course.id));
     loaded.courses.push(...defaults.courses.filter((course) => !savedCourseIds.has(course.id)));
@@ -392,13 +382,41 @@ try {
   if (!remoteAdmin || !remotePublic || !remotePublic.catalogInitialized || hasNewCourses || hasCourseDefaultsUpdate || hasCourseCatalogUpdate || removedSeedRecords) await supabaseClient.saveWorkspace("public", publicWorkspace(state));
   removedSeedRecords = false;
 } catch (error) {
-  mainContent.innerHTML = `<section class="panel"><div class="panel-body"><h2>Could not load Supabase data</h2><p>${escapeHTML(error.message || "Check the Supabase project setup and try again.")}</p></div></section>`;
+  mainContent.innerHTML = `<section class="panel"><div class="panel-body"><h2>Could not load account data</h2><p>${escapeHTML(error.message || "Check your connection and try again.")}</p></div></section>`;
   return;
 }
 let activeView = "dashboard";
 let chartRange = "week";
 let activeFilters = { search: "", status: "All" };
 let modalPreviousFocus = null;
+let privacyRequests = [];
+let privacyRequestsError = "";
+let privacyRequestsRealtimeError = "";
+let privacyRequestsLoading = true;
+let privacyRequestsChannel = null;
+const adminPrivacyPreferences = {
+  product_email: false,
+  marketing_email: false,
+  sms_notifications: false,
+  whatsapp_notifications: false,
+  analytics_cookies: false,
+  third_party_sharing: false
+};
+let adminPrivacyPreferencesLoading = true;
+let adminPrivacyPreferencesError = "";
+let adminSecuritySession = null;
+let adminSecurityFactors = [];
+let adminSecurityLoading = true;
+let adminSecurityError = "";
+let adminSecurityMfaMessage = "";
+let adminPendingMfaFactor = null;
+let adminSecurityChannel = null;
+let adminSecurityPromise = null;
+let referralAdminSummary = null;
+let referralAdminLoading = false;
+let referralAdminError = "";
+let referralAdminChannel = null;
+let referralAdminPromise = null;
 
 let persistedState = JSON.parse(JSON.stringify(state));
 let persistRevision = 0;
@@ -423,13 +441,13 @@ function persist(message) {
     .then(() => {
       if (revision !== persistRevision) return;
       persistedState = snapshot;
-      if (message) notify(`${message} Synced with Supabase.`);
+      if (message) notify(`${message} Synced with your account.`);
     })
     .catch((error) => {
       if (revision !== persistRevision) return;
       state = persistedState;
       render();
-      notify(`Could not save this change to Supabase: ${error.message}`, "error");
+      notify(`Could not save this change to your account: ${error.message}`, "error");
     });
   return true;
 }
@@ -462,10 +480,10 @@ async function refreshDashboard() {
     state = refreshedState;
     persistedState = JSON.parse(JSON.stringify(refreshedState));
     render();
-    notify("Dashboard data refreshed from Supabase.");
+    notify("Dashboard data refreshed.");
   } catch (error) {
     if (refreshButton?.isConnected) refreshButton.disabled = false;
-    notify(`Could not refresh dashboard data from Supabase: ${error.message}`, "error");
+    notify(`Could not refresh dashboard data: ${error.message}`, "error");
   }
 }
 
@@ -483,7 +501,7 @@ async function updateLearnerSession(session, remove = false) {
 async function updateLearnerEnrollment(userId, courseId, status, payment) {
   if (!userId) return;
   const workspace = await supabaseClient.loadWorkspace(`learner:${userId}`);
-  if (!workspace) throw new Error("The learner's Supabase workspace could not be found.");
+  if (!workspace) throw new Error("The learner's account workspace could not be found.");
   workspace.enrollmentRequests = (workspace.enrollmentRequests || []).map((request) =>
     request.course_id === courseId ? { ...request, status } : request);
   if (payment) {
@@ -614,18 +632,19 @@ function renderDashboard() {
     ? Math.round(registeredLearners.reduce((sum, item) => sum + item.progress, 0) / registeredLearners.length)
     : 0;
   const revenue = state.payments.filter((item) => item.status === "Successful").reduce((sum, item) => sum + item.amount, 0);
-  const commission = state.referrals.reduce((sum, item) => sum + item.commission, 0);
-  const pendingWithdrawals = state.withdrawals.filter((item) => item.status === "Pending").length;
+  const referralPartners = referralAdminSummary?.partners || [];
+  const commission = referralPartners.reduce((sum, item) => sum + (Number(item.commission) || 0), 0);
+  const referralPartnerCount = referralAdminSummary ? referralPartners.length : "—";
   const successfulPayments = state.payments.filter((item) => item.status === "Successful").length;
   const statData = [
     ["Registered learners", state.students.length, "♙", "Learner accounts and workspace records", ""],
     ["Enrolled learners", enrolledStudents, "↗", "At least one approved enrollment", "coral"],
-    ["Referral partners", state.referrals.length, "◎", "Registered partner accounts", "violet"],
+    ["Referral partners", referralPartnerCount, "◎", referralAdminSummary ? "Live registered partner accounts" : referralAdminError || "Loading live referral data", "violet"],
     ["Available courses", state.courses.filter((item) => item.status === "Published").length, "▤", `${state.courses.length} total in course library`, "amber"],
     ["Approved enrollments", successfulPayments, "⌑", "Recorded enrollment activity", ""],
     ["Enrolled course value", money(revenue), "↗", "Not verified payment revenue", "coral"],
-    ["Referral commissions", money(commission), "✳", "Recorded partner commissions", "violet"],
-    ["Pending withdrawals", pendingWithdrawals, "◷", "Requests awaiting review", "amber"]
+    ["Referral commissions", referralAdminSummary ? money(commission) : "—", "✳", referralAdminSummary ? "From verified course payments" : "Live commission data", "violet"],
+    ["Payout processing", "Off", "◷", "Payment provider not configured", "amber"]
   ];
   const stats = statData.map(([label, value, icon, foot, color]) => `<article class="stat-card"><div class="stat-top"><span class="stat-label">${label}</span><span class="stat-icon ${color}">${icon}</span></div><strong class="stat-value">${value}</strong><div class="stat-foot"><span>${foot}</span></div></article>`).join("");
   const transactions = [...state.payments].sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).slice(0, 5).map((payment, index) => `<div class="activity-item">${avatar(studentName(payment.studentId), ["", "avatar-rose", "avatar-blue", "avatar-violet", "avatar-amber"][index])}<div class="activity-copy"><strong>${escapeHTML(studentName(payment.studentId))} · ${escapeHTML(courseName(payment.courseId))}</strong><small>${escapeHTML(payment.id)} · ${relativeDate(payment.date)}</small></div><span class="activity-amount">${payment.status === "Successful" ? money(payment.amount) : statusBadge(payment.status)}</span></div>`).join("");
@@ -671,7 +690,7 @@ function renderStudents() {
     && (activeFilters.status === "All" || student.status === activeFilters.status));
   const rows = filtered.map((student) => `<tr><td><div class="cell-primary">${avatar(student.name)}<span><strong>${escapeHTML(student.name)}</strong><small>${student.source === "supabase" ? "Registered account" : "Sample record"}</small></span></div></td><td>${escapeHTML(student.email)}</td><td>${dateLabel(student.joined)}</td><td>${student.courses.length}</td><td><strong>${student.progress}%</strong></td><td>${statusBadge(student.status)}</td><td><button class="text-button" data-action="student-details" data-id="${escapeHTML(student.id)}">Profile</button></td></tr>`).join("");
   const toolbar = `<div class="toolbar-left"><div class="search-field"><input type="search" data-filter="search" placeholder="Search students…" value="${escapeHTML(activeFilters.search)}" aria-label="Search students"></div><select class="field-control" data-filter="status" aria-label="Filter student status"><option>All</option><option${activeFilters.status === "Registered" ? " selected" : ""}>Registered</option></select></div><div class="toolbar-right"><button class="button button-soft button-small" data-action="export-students">↓ Export CSV</button></div>`;
-  return `${heading("Student management", "Review registered accounts, enrollment records and progress synced with Supabase.", `<span class="button button-soft">${state.students.length} records</span>`)}
+  return `${heading("Student management", "Review registered accounts, enrollment records and saved progress.", `<span class="button button-soft">${state.students.length} records</span>`)}
     <div class="summary-cards"><div class="summary-card"><span>Learner profiles</span><strong>${state.students.length}</strong><small>Accounts and learner records</small></div><div class="summary-card"><span>Enrolled learners</span><strong>${state.students.filter((student) => student.courses.length > 0).length}</strong><small>At least one approved enrollment</small></div><div class="summary-card"><span>Average learning progress</span><strong>${state.students.length ? Math.round(state.students.reduce((sum, student) => sum + student.progress, 0) / state.students.length) : 0}%</strong><small>Calculated from learner records</small></div></div>
     ${tableShell(toolbar, ["Student", "Email", "Joined", "Courses", "Progress", "Status", "Actions"], rows, "No students match these filters.")}`;
 }
@@ -698,15 +717,19 @@ function renderFinance() {
 }
 
 function renderReferrals() {
-  const rows = [...state.referrals].sort((a, b) => b.conversions - a.conversions).map((referral) => `<tr><td><div class="cell-primary">${avatar(referral.name)}<span><strong>${escapeHTML(referral.name)}</strong><small>${escapeHTML(referral.email)}</small></span></div></td><td><strong>${escapeHTML(referral.code)}</strong></td><td>${referral.referrals}</td><td>${referral.conversions}</td><td><strong>${money(referral.commission)}</strong></td><td>${statusBadge(referral.status)}</td><td><div class="table-actions"><button class="text-button" data-action="referral-details" data-id="${referral.id}">Details</button><button class="text-button" data-action="adjust-commission" data-id="${referral.id}">Adjust</button></div></td></tr>`).join("");
-  const withdrawals = state.withdrawals.map((request) => `<tr><td><strong>${escapeHTML(request.id)}</strong></td><td>${escapeHTML(request.partner)}</td><td><strong>${money(request.amount)}</strong></td><td>${escapeHTML(request.account)}</td><td>${dateLabel(request.requested)}</td><td>${statusBadge(request.status)}</td><td><div class="table-actions">${request.status === "Pending" ? `<button class="text-button" data-action="approve-withdrawal" data-id="${request.id}">Approve</button><button class="text-button danger" data-action="reject-withdrawal" data-id="${request.id}">Reject</button>` : "—"}</div></td></tr>`).join("");
-  const campaigns = state.campaigns.map((campaign) => `<tr><td><strong>${escapeHTML(campaign.name)}</strong><small class="muted"><br>${escapeHTML(campaign.id)}</small></td><td>${campaign.rate}%</td><td>${dateLabel(campaign.createdAt)}</td><td>${statusBadge(campaign.status)}</td><td><div class="table-actions"><button class="text-button" data-action="toggle-campaign" data-id="${campaign.id}">${campaign.status === "Active" ? "Pause" : "Activate"}</button><button class="text-button danger" data-action="delete-campaign" data-id="${campaign.id}">Delete</button></div></td></tr>`).join("");
-  const totalCommission = state.referrals.reduce((sum, referral) => sum + referral.commission, 0);
-  return `${heading("Referral management", "Monitor partner referrals, commission totals and withdrawal requests.", `<button class="button button-primary" data-action="referral-campaign"><span class="button-icon">＋</span> New campaign</button>`)}
-    <div class="summary-cards"><div class="summary-card"><span>Referral partners</span><strong>${state.referrals.length}</strong><small>Registered demo accounts</small></div><div class="summary-card"><span>Successful referrals</span><strong>${state.referrals.reduce((sum, referral) => sum + referral.conversions, 0)}</strong><small>Sample course conversions</small></div><div class="summary-card"><span>Commissions recorded</span><strong>${money(totalCommission)}</strong><small>Unverified demo balance</small></div></div>
-    <section class="panel data-panel"><div class="panel-header"><div><h2>Referral partners & leaderboard</h2><p>Ranked by successful sample conversions</p></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Partner</th><th>Referral code</th><th>Clicks</th><th>Conversions</th><th>Commission</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows || `<tr><td class="table-empty" colspan="7">No referral partners yet.</td></tr>`}</tbody></table></div></section>
-    <section class="panel data-panel"><div class="panel-header"><div><h2>Referral campaigns</h2><p>Local campaign rules and commission rate</p></div><span class="muted">Current default: ${state.settings.referralRate}%</span></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Campaign</th><th>Commission</th><th>Created</th><th>Status</th><th>Actions</th></tr></thead><tbody>${campaigns || `<tr><td class="table-empty" colspan="5">No campaigns created. Add one to configure the default rate.</td></tr>`}</tbody></table></div></section>
-    <section class="panel data-panel"><div class="panel-header"><div><h2>Withdrawal requests</h2><p>${state.withdrawals.filter((request) => request.status === "Pending").length} awaiting review</p></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Request</th><th>Partner</th><th>Amount</th><th>Account</th><th>Requested</th><th>Status</th><th>Actions</th></tr></thead><tbody>${withdrawals || `<tr><td class="table-empty" colspan="7">No withdrawal requests.</td></tr>`}</tbody></table></div></section>`;
+  if (!referralAdminSummary && !referralAdminLoading) void ensureReferralAdminSummary();
+  if (referralAdminLoading) return `${heading("Referral management", "Review referral registrations and payment-verified commissions.")}<section class="panel"><div class="panel-body">Loading referral records…</div></section>`;
+  if (referralAdminError) return `${heading("Referral management", "Review referral registrations and payment-verified commissions.")}<section class="panel"><div class="panel-body"><p>Referral records could not be loaded: ${escapeHTML(referralAdminError)}</p><button class="button button-soft" data-action="refresh-referrals">Try again</button></div></section>`;
+  const partners = referralAdminSummary?.partners || [];
+  const rows = partners.map((referral) => `<tr><td><div class="cell-primary">${avatar(referral.name)}<span><strong>${escapeHTML(referral.name || "Learner")}</strong><small>${escapeHTML(referral.email)}</small></span></div></td><td><strong>${escapeHTML(referral.code)}</strong></td><td>${Number(referral.referrals) || 0}</td><td>${Number(referral.conversions) || 0}</td><td><strong>${money(referral.commission)}</strong></td><td>${statusBadge(referral.status)}</td></tr>`).join("");
+  const totalRegistrations = partners.reduce((sum, referral) => sum + (Number(referral.referrals) || 0), 0);
+  const totalConversions = partners.reduce((sum, referral) => sum + (Number(referral.conversions) || 0), 0);
+  const totalCommission = partners.reduce((sum, referral) => sum + (Number(referral.commission) || 0), 0);
+  return `${heading("Referral management", "Live registrations and commissions from independently verified course payments.", `<button class="button button-primary" data-action="set-referral-rate">Set commission rate</button>`)}
+    <div class="summary-cards"><div class="summary-card"><span>Referral partners</span><strong>${partners.length}</strong><small>Registered learner accounts</small></div><div class="summary-card"><span>Attributed registrations</span><strong>${totalRegistrations}</strong><small>Linked to referral codes</small></div><div class="summary-card"><span>Verified purchases</span><strong>${totalConversions}</strong><small>Payments verified by an administrator</small></div><div class="summary-card"><span>Commissions recorded</span><strong>${money(totalCommission)}</strong><small>Pending payout configuration</small></div></div>
+    ${referralAdminError ? `<div class="inline-note"><span>ⓘ</span><div>${escapeHTML(referralAdminError)}</div></div>` : ""}
+    <section class="panel data-panel"><div class="panel-header"><div><h2>Referral partners</h2><p>Updated as registrations and verified payments arrive</p></div><span class="muted">Commission rate: ${Number(referralAdminSummary?.rate) || 0}%</span></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Partner</th><th>Referral code</th><th>Registrations</th><th>Verified purchases</th><th>Commission</th><th>Status</th></tr></thead><tbody>${rows || `<tr><td class="table-empty" colspan="6">No referral registrations yet.</td></tr>`}</tbody></table></div></section>
+    <section class="panel"><div class="panel-body"><h2>Payment and payout processing</h2><p>Commissions are credited only after an administrator independently verifies a course payment. Online payment collection and automatic payouts are not configured.</p></div></section>`;
 }
 
 function renderMentorship() {
@@ -736,26 +759,237 @@ function renderContent() {
   const recentAnnouncements = state.announcements.slice(0, 5).map((item) => `<div class="activity-item"><span class="stat-icon">✉</span><div class="activity-copy"><strong>${escapeHTML(item.title)}</strong><small>${dateLabel(item.date)} · ${escapeHTML(item.status)}</small><p>${escapeHTML(item.body)}</p></div></div>`).join("");
   const testimonials = state.testimonials.map((item) => `<article class="faq-content-item"><strong>${escapeHTML(item.name)} · ${escapeHTML(item.role)}</strong><p>“${escapeHTML(item.quote)}”</p><div class="table-actions"><button class="text-button" data-action="edit-testimonial" data-id="${item.id}">Edit</button><button class="text-button" data-action="toggle-testimonial" data-id="${item.id}">${item.status === "Published" ? "Unpublish" : "Publish"}</button><button class="text-button danger" data-action="delete-testimonial" data-id="${item.id}">Delete</button>${statusBadge(item.status)}</div></article>`).join("");
   return `${heading("Website & content", "Update website FAQs and draft platform announcements.", `<button class="button button-primary" data-action="add-faq"><span class="button-icon">＋</span> Add FAQ</button>`)}
-    <div class="inline-note"><span>ⓘ</span><div>Published FAQs and announcements sync to Supabase and appear on the public website after it is refreshed.</div></div>
-    <div class="content-grid">    <section class="panel"><div class="panel-header"><div><h2>Homepage content</h2><p>Hero, banner and contact information</p></div><button class="button button-soft button-small" data-action="edit-homepage">Edit content</button></div><div class="panel-body"><div class="detail-block"><h3>Hero headline</h3><p>${escapeHTML(state.siteContent.headline)}</p></div><div class="detail-block"><h3>Announcement banner</h3><p>${escapeHTML(state.siteContent.announcement || "No announcement banner.")}</p></div><div class="detail-block"><h3>Promotional banner image</h3><p>${escapeHTML(state.siteContent.bannerUrl || "No promotional banner image.")}</p></div><div class="detail-block"><h3>Contact email</h3><p>${escapeHTML(state.siteContent.contactEmail)}</p></div><div class="detail-block"><h3>Privacy policy & terms</h3><p>${state.siteContent.privacyPolicy || state.siteContent.terms ? "Policy content saved to Supabase." : "No legal page content saved."}</p><div class="table-actions"><button class="text-button" data-action="edit-legal">Edit legal pages</button></div></div></div></section>
+    <div class="inline-note"><span>ⓘ</span><div>Published FAQs and announcements sync to your account and appear on the public website after it is refreshed.</div></div>
+    <div class="content-grid">    <section class="panel"><div class="panel-header"><div><h2>Homepage content</h2><p>Hero, banner and contact information</p></div><button class="button button-soft button-small" data-action="edit-homepage">Edit content</button></div><div class="panel-body"><div class="detail-block"><h3>Hero headline</h3><p>${escapeHTML(state.siteContent.headline)}</p></div><div class="detail-block"><h3>Announcement banner</h3><p>${escapeHTML(state.siteContent.announcement || "No announcement banner.")}</p></div><div class="detail-block"><h3>Promotional banner image</h3><p>${escapeHTML(state.siteContent.bannerUrl || "No promotional banner image.")}</p></div><div class="detail-block"><h3>Contact email</h3><p>${escapeHTML(state.siteContent.contactEmail)}</p></div><div class="detail-block"><h3>Privacy policy & terms</h3><p>${state.siteContent.privacyPolicy || state.siteContent.terms ? "Policy content saved." : "No legal page content saved."}</p><div class="table-actions"><button class="text-button" data-action="edit-legal">Edit legal pages</button></div></div></div></section>
     <section class="panel"><div class="panel-header"><div><h2>Frequently asked questions</h2><p>${state.faqs.length} content items</p></div><button class="button button-soft button-small" data-action="add-faq">＋ Add FAQ</button></div><div class="panel-body">${faqRows || `<div class="empty-state">No FAQs have been added.</div>`}</div></section>
     <section class="panel"><div class="panel-header"><div><h2>Testimonials</h2><p>Manage learner stories and publishing status</p></div><button class="button button-soft button-small" data-action="add-testimonial">＋ Add testimonial</button></div><div class="panel-body">${testimonials || `<div class="empty-state">No testimonials have been added.</div>`}</div></section>
     <section class="panel"><div class="panel-header"><div><h2>Announcements</h2><p>Published notices on the website; no email is sent</p></div><button class="button button-soft button-small" data-action="announcement">＋ Publish</button></div><div class="panel-body"><div class="activity-list">${recentAnnouncements || `<div class="empty-state">No announcements published.</div>`}</div></div></section></div>`;
 }
 
-function renderSettings() {
-  const audit = state.audit.slice(0, 8).map((item) => `<div class="activity-item"><span class="stat-icon violet">◷</span><div class="activity-copy"><strong>${escapeHTML(item.action)}</strong><small>${escapeHTML(item.by)} · ${dateLabel(item.date)}</small></div></div>`).join("");
-  return `${heading("Settings & security", "")}
-    <div class="settings-grid">
-      <section class="settings-card"><h2>Connected services</h2><p>Platform profiles and workspace data are stored in Supabase. No payment or email services are connected.</p>
-        <div class="setting-row"><div><strong>Course enrollment</strong><small>Enrollment requests and approvals sync to Supabase</small></div>${statusBadge("Supabase")}</div>
-        <div class="setting-row"><div><strong>Online payments</strong><small>No payment provider is connected</small></div>${statusBadge("Not connected")}</div>
-        <div class="setting-row"><div><strong>Email notifications</strong><small>No email provider is connected</small></div>${statusBadge("Not connected")}</div>
+function renderAdminSecurity() {
+  const rows = privacyRequests.map((request) => {
+    const type = ({
+      data_export: "Data export",
+      account_deletion: "Account deletion",
+      correction: "Data correction",
+      restriction: "Processing restriction",
+      privacy_concern: "Privacy concern"
+    })[request.request_type] || "Privacy request";
+    const canReview = request.status === "Pending";
+    const canResolve = request.status === "Pending" || request.status === "In review";
+    const actions = canResolve
+      ? `<div class="table-actions">${canReview ? `<button class="text-button" data-action="privacy-review" data-id="${escapeHTML(request.id)}">Mark in review</button>` : ""}<button class="text-button" data-action="privacy-complete" data-id="${escapeHTML(request.id)}">Mark completed</button><button class="text-button danger" data-action="privacy-decline" data-id="${escapeHTML(request.id)}">Decline</button></div>`
+      : "—";
+    return `<tr><td><strong>${escapeHTML(type)}</strong><small class="muted"><br>${escapeHTML(request.user?.full_name || request.user?.email || request.user_id)}</small></td><td>${escapeHTML(request.details || "No details provided.")}</td><td>${escapeHTML(new Date(request.created_at).toLocaleString())}</td><td>${statusBadge(request.status)}</td><td>${actions}</td></tr>`;
+  }).join("");
+  const requestError = privacyRequestsError ? `<p class="security-status error" role="status">Learner privacy requests could not be loaded. Check that the security and privacy migration is applied and that this account has administrator access, then refresh.</p>` : "";
+  const realtimeError = privacyRequestsRealtimeError ? `<p class="security-status" role="status">Live privacy updates are unavailable. Use Refresh to check for changes.</p>` : "";
+  const preferences = [
+    ["product_email", "Account and product emails"],
+    ["marketing_email", "Marketing emails"],
+    ["sms_notifications", "SMS notifications"],
+    ["whatsapp_notifications", "WhatsApp notifications"],
+    ["analytics_cookies", "Analytics cookies"],
+    ["third_party_sharing", "Optional third-party data sharing"]
+  ].map(([key, label]) => `<label class="admin-privacy-toggle"><span>${label}</span><input type="checkbox" data-admin-privacy-preference="${key}" ${adminPrivacyPreferences[key] ? "checked" : ""} ${adminPrivacyPreferencesLoading ? "disabled" : ""} aria-label="${label}"></label>`).join("");
+  const factor = adminSecurityFactors.find((item) => item.factor_type === "totp" && item.status === "verified");
+  const browser = /Edg\//.test(navigator.userAgent) ? "Microsoft Edge" : /Firefox\//.test(navigator.userAgent) ? "Mozilla Firefox" : /Chrome\//.test(navigator.userAgent) ? "Google Chrome" : /Safari\//.test(navigator.userAgent) ? "Safari" : "Browser";
+  const lastSignIn = adminSecuritySession?.user?.last_sign_in_at
+    ? new Date(adminSecuritySession.user.last_sign_in_at).toLocaleString()
+    : "Not reported";
+  const exportError = adminSecurityError ? `<p class="security-status error" role="status">${escapeHTML(adminSecurityError)}</p>` : "";
+  const mfaMessage = adminSecurityMfaMessage ? `<p class="security-status" role="status">${escapeHTML(adminSecurityMfaMessage)}</p>` : "";
+  const audit = state.audit.slice(0, 5).map((item) => `<div class="activity-item"><span class="stat-icon violet">◷</span><div class="activity-copy"><strong>${escapeHTML(item.action)}</strong><small>${escapeHTML(item.by)} · ${dateLabel(item.date)}</small></div></div>`).join("");
+  return `${heading("Security & Privacy", "Manage administrator account security, privacy choices, personal data and learner requests.")}
+    ${adminSecurityLoading ? `<p class="security-status">Loading administrator security settings…</p>` : ""}
+    ${exportError}${mfaMessage}${realtimeError}
+    <div class="settings-grid admin-security-grid">
+      <section class="settings-card"><h2>Account security</h2><p>Protect the administrator account used for this session.</p>
+        <div class="setting-row"><div><strong>Password</strong><small>Change your administrator password</small></div><button class="button button-soft button-small" data-action="admin-change-password">Change password</button></div>
+        <div class="setting-row"><div><strong>Two-factor authentication</strong><small>${factor ? "Authenticator app enabled" : adminSecurityFactors.length ? "No verified authenticator" : "Not enabled"}</small></div>${factor ? `<button class="button button-soft button-small" data-action="admin-disable-mfa" data-id="${escapeHTML(factor.id)}">Turn off</button>` : `<button class="button button-soft button-small" data-action="admin-enable-mfa">Set up 2FA</button>`}</div>
+        <div class="setting-row"><div><strong>Current session</strong><small>${escapeHTML(browser)} · last sign-in ${escapeHTML(lastSignIn)}</small></div>${statusBadge(adminSecuritySession ? "Active" : "Unavailable")}</div>
+        <div class="security-action-row"><button class="button button-danger button-small" data-action="admin-signout-all">Log out all devices</button></div>
+        <p class="security-help">This page can revoke all sessions or end the current session. A complete device/IP login history, approximate login location and suspicious-login detection require a trusted server-side audit service.</p>
       </section>
-      <section class="settings-card"><h2>Recent activity</h2><p>Administrative changes synced to Supabase.</p><div class="activity-list">${audit || `<div class="empty-state">No activity recorded yet.</div>`}</div></section>
-    </div>`;
+      <section class="settings-card"><h2>Privacy &amp; consent</h2><p>Preferences apply to this administrator account and are stored securely.</p>
+        ${adminPrivacyPreferencesLoading ? `<p class="security-help">Loading saved preferences…</p>` : preferences}
+        ${adminPrivacyPreferencesError ? `<p class="security-status error" role="status">${escapeHTML(adminPrivacyPreferencesError)}</p>` : ""}
+        <p class="security-help">Public profile visibility is not available in this portal. Notification choices are saved, but delivery needs configured email, SMS or WhatsApp services. Non-essential processing is limited; this portal does not send account data to an AI service.</p>
+      </section>
+      <section class="settings-card"><h2>Personal data</h2><p>Information associated with the signed-in administrator account.</p>
+        <div class="setting-row"><div><strong>Name</strong><small>${escapeHTML(currentUser.name || "Not provided")}</small></div></div>
+        <div class="setting-row"><div><strong>Email</strong><small>${escapeHTML(currentUser.email)}</small></div></div>
+        <div class="security-action-row"><button class="button button-soft button-small" data-action="admin-export-data">Download my data</button><button class="button button-soft button-small" data-action="admin-request-export">Request data export</button><button class="button button-soft button-small" data-action="admin-request-correction">Request correction</button><button class="button button-soft button-small" data-action="admin-request-restriction">Restrict processing</button><button class="button button-soft button-small" data-action="admin-request-concern">Report a privacy concern</button><button class="button button-danger button-small" data-action="admin-request-deletion">Request account deletion</button></div>
+        <p class="security-help">Requests are recorded for review; they do not automatically change or delete account data. No retention schedule is configured.</p>
+      </section>
+      <section class="settings-card"><h2>Alerts &amp; recovery</h2><p>Password recovery and account emails depend on the authentication provider's configuration.</p>
+        <div class="setting-row"><div><strong>Login and password alerts</strong><small>Custom security notifications are not configured</small></div>${statusBadge("Unavailable")}</div>
+        <div class="setting-row"><div><strong>Account recovery</strong><small>Send a password reset link to ${escapeHTML(currentUser.email)}</small></div><button class="button button-soft button-small" data-action="admin-password-recovery">Send reset link</button></div>
+        <p class="security-help">Email, export and deletion notices require a configured server-side notification service.</p>
+      </section>
+      <section class="settings-card"><h2>Privacy &amp; legal</h2><p>Manage the published legal notices for the public website.</p>
+        <div class="setting-row"><div><strong>Privacy policy</strong><small>${state.siteContent.privacyPolicy ? "Published content saved" : "Not published"}</small></div></div>
+        <div class="setting-row"><div><strong>Terms of service</strong><small>${state.siteContent.terms ? "Published content saved" : "Not published"}</small></div></div>
+        <div class="setting-row"><div><strong>Cookie policy</strong><small>${state.siteContent.cookiePolicy ? "Published content saved" : "Not published"}</small></div></div>
+        <div class="setting-row"><div><strong>Data processing &amp; retention</strong><small>${state.siteContent.dataProcessingPolicy && state.siteContent.dataRetentionPolicy ? "Published content saved" : "Not published"}</small></div></div>
+        <div class="setting-row"><div><strong>DPO contact</strong><small>${state.siteContent.dpoContact ? "Published contact saved" : "Not published"}</small></div></div>
+        <div class="security-action-row"><button class="button button-soft button-small" data-action="edit-legal">Edit privacy policy &amp; terms</button></div>
+        <p class="security-help">Published notices are available from the public website footer. Review policy accuracy before publication.</p>
+      </section>
+      <section class="settings-card"><h2>Connected services &amp; recent activity</h2><p>Enrollment data syncs to your account. Email and payment delivery are not configured.</p>
+        <div class="setting-row"><div><strong>Course enrollment</strong><small>Enrollment requests and approvals are synced</small></div>${statusBadge("Connected")}</div>
+        <div class="setting-row"><div><strong>Online payments / email</strong><small>Providers are not connected</small></div>${statusBadge("Not connected")}</div>
+        <div class="activity-list">${audit || `<div class="empty-state">No activity recorded yet.</div>`}</div>
+      </section>
+    </div>
+    <section class="panel data-panel"><div class="panel-header"><div><h2>Privacy requests from learners</h2><p>Review and update request status; completion does not execute deletion or correction.</p></div><button class="button button-soft button-small" data-action="refresh-privacy-requests">Refresh</button></div>
+      ${requestError}${privacyRequestsLoading ? `<div class="empty-state">Loading privacy requests…</div>` : tableShell("", ["Request and learner", "Details", "Submitted", "Status", "Actions"], rows, "No privacy requests have been submitted.")}
+    </section>`;
 }
+
+async function refreshPrivacyRequests() {
+  try {
+    const { data, error } = await supabaseClient.client.from("privacy_requests")
+      .select("id,user_id,request_type,details,status,admin_notes,created_at,updated_at")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    const userIds = [...new Set((data || []).map((request) => request.user_id))];
+    let profiles = [];
+    if (userIds.length) {
+      const { data: profileData, error: profileError } = await supabaseClient.client.from("profiles")
+        .select("id,email,full_name")
+        .in("id", userIds);
+      if (profileError) throw profileError;
+      profiles = profileData || [];
+    }
+    const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+    privacyRequests = (data || []).map((request) => ({ ...request, user: profileById.get(request.user_id) }));
+    privacyRequestsError = "";
+  } catch (error) {
+    privacyRequestsError = error.message || "Unknown database error.";
+    console.error("Could not load privacy requests:", error);
+  } finally {
+    privacyRequestsLoading = false;
+    if (activeView === "security") render();
+  }
+}
+
+function subscribeToPrivacyRequests() {
+  privacyRequestsChannel = supabaseClient.client.channel("admin-privacy-requests")
+    .on("postgres_changes", { event: "*", schema: "public", table: "privacy_requests" }, () => {
+      void refreshPrivacyRequests();
+    })
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "user_privacy_preferences",
+      filter: `user_id=eq.${currentUser.id}`
+    }, () => {
+      void refreshAdminPrivacyPreferences();
+    })
+    .subscribe((status, error) => {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        privacyRequestsRealtimeError = error?.message || `Live privacy updates are unavailable (${status}).`;
+        if (activeView === "security") render();
+        console.error("Could not subscribe to privacy updates:", privacyRequestsRealtimeError);
+        notify("Live privacy-request updates are unavailable. Use Refresh to check for changes.", "error");
+      }
+    });
+}
+
+async function refreshAdminPrivacyPreferences() {
+    try {
+      const preferences = await supabaseClient.loadPrivacyPreferences(currentUser.id);
+      Object.assign(adminPrivacyPreferences, {
+        product_email: false,
+        marketing_email: false,
+        sms_notifications: false,
+        whatsapp_notifications: false,
+        analytics_cookies: false,
+        third_party_sharing: false,
+        ...(preferences || {})
+      });
+      adminPrivacyPreferencesError = "";
+    } catch (error) {
+      adminPrivacyPreferencesError = error.message || "Privacy preferences could not be loaded.";
+      throw error;
+    } finally {
+      adminPrivacyPreferencesLoading = false;
+      if (activeView === "security") render();
+    }
+}
+
+async function refreshAdminSecurity() {
+    const [sessionResult, factorsResult] = await Promise.all([
+      supabaseClient.client.auth.getSession(),
+      supabaseClient.client.auth.mfa.listFactors()
+    ]);
+    if (sessionResult.error) throw sessionResult.error;
+    if (factorsResult.error) throw factorsResult.error;
+    adminSecuritySession = sessionResult.data.session;
+    adminSecurityFactors = factorsResult.data?.all || factorsResult.data?.totp || [];
+    adminSecurityError = "";
+}
+
+function ensureAdminSecurityLoaded() {
+    if (adminSecurityPromise) return adminSecurityPromise;
+    adminSecurityLoading = true;
+    adminSecurityPromise = (async () => {
+      try {
+        await Promise.all([refreshAdminSecurity(), refreshAdminPrivacyPreferences()]);
+      } catch (error) {
+        adminSecurityError = error.message || "Administrator security settings could not be loaded.";
+      } finally {
+        adminSecurityLoading = false;
+        adminSecurityPromise = null;
+        if (activeView === "security") render();
+      }
+    })();
+    return adminSecurityPromise;
+}
+
+async function refreshReferralAdminSummary() {
+    referralAdminSummary = await supabaseClient.getReferralAdminSummary();
+    referralAdminError = "";
+}
+
+function ensureReferralAdminSummary() {
+    if (referralAdminLoading) return referralAdminPromise;
+    referralAdminLoading = true;
+    referralAdminPromise = (async () => {
+      try {
+        await refreshReferralAdminSummary();
+        if (!referralAdminChannel && supabaseClient.subscribeReferrals) {
+          referralAdminChannel = supabaseClient.subscribeReferrals(
+            currentUser.id,
+            () => {
+              void refreshReferralAdminSummary().then(() => {
+                if (activeView === "referrals" || activeView === "dashboard") render();
+              }).catch((error) => {
+                referralAdminError = error.message || "Referral information could not be refreshed.";
+                if (activeView === "referrals" || activeView === "dashboard") render();
+              });
+            },
+            (error) => {
+              referralAdminError = error.message || "Live referral updates are unavailable.";
+              if (activeView === "referrals" || activeView === "dashboard") render();
+            },
+            true
+          );
+        }
+      } catch (error) {
+        referralAdminError = error.message || "Referral information could not be loaded.";
+      } finally {
+        referralAdminLoading = false;
+        referralAdminPromise = null;
+        if (activeView === "referrals" || activeView === "dashboard") render();
+      }
+    })();
+    return referralAdminPromise;
+}
+
 function render() {
+  if (activeView === "security" && !adminSecurityPromise && (adminSecurityLoading || adminPrivacyPreferencesLoading)) void ensureAdminSecurityLoaded();
   document.querySelector("#current-page").textContent = pageNames[activeView];
   navButtons.forEach((button) => {
     const active = button.dataset.view === activeView;
@@ -771,7 +1005,7 @@ function render() {
     finance: renderFinance,
     referrals: renderReferrals,
     mentorship: renderMentorship,
-    settings: renderSettings
+    security: renderAdminSecurity
   })[activeView]();
 }
 
@@ -796,6 +1030,16 @@ function openModal(title, content) {
 }
 
 function closeModal() {
+  if (adminPendingMfaFactor) {
+    const factorId = adminPendingMfaFactor.id;
+    adminPendingMfaFactor = null;
+    void supabaseClient.client.auth.mfa.unenroll({ factorId }).then(({ error }) => {
+      if (error) throw error;
+    }).catch((error) => {
+      console.error("Could not remove the cancelled authenticator setup:", error);
+      notify(`Could not remove the unfinished authenticator setup: ${error.message}`, "error");
+    });
+  }
   modalLayer.hidden = true;
   document.body.style.overflow = "";
   modalBody.replaceChildren();
@@ -891,13 +1135,123 @@ async function handleAction(action, id) {
   const student = state.students.find((item) => item.id === id);
   const payment = state.payments.find((item) => item.id === id);
   const enrollmentRequest = state.enrollmentRequests.find((item) => item.id === id);
-  const withdrawal = state.withdrawals.find((item) => item.id === id);
   const session = state.sessions.find((item) => item.id === id);
   const job = state.jobs.find((item) => item.id === id);
   const faq = state.faqs.find((item) => item.id === id);
-  const referral = state.referrals.find((item) => item.id === id);
+  const privacyRequest = privacyRequests.find((item) => item.id === id);
 
   switch (action) {
+    case "admin-change-password":
+      formModal("Change administrator password", "admin-password", "", field("New password", "password", "", { type: "password", required: true, min: 8 }) + field("Confirm new password", "confirmation", "", { type: "password", required: true, min: 8 }), "Update password");
+      break;
+    case "admin-enable-mfa": {
+      try {
+        const { data, error } = await supabaseClient.client.auth.mfa.enroll({ factorType: "totp", friendlyName: "SKILL-UP administrator account" });
+        if (error) throw error;
+        adminPendingMfaFactor = { id: data.id };
+        const qr = /^data:image\/svg\+xml(?:;|,)/i.test(String(data.totp?.qr_code || "")) ? `<img class="mfa-qr-code" src="${escapeHTML(data.totp.qr_code)}" alt="Authenticator setup QR code">` : "";
+        openModal("Set up administrator two-factor authentication", `<p class="security-help">Scan with an authenticator app, then verify the current 6-digit code.</p>${qr}<div class="detail-block"><strong>Manual setup key</strong><p><code>${escapeHTML(data.totp?.secret || "A setup key was not returned.")}</code></p></div><form data-form="admin-mfa-verify" data-factor="${escapeHTML(data.id)}" data-purpose="enroll">${field("Authenticator code", "code", "", { required: true, min: 6 })}<div class="form-actions"><button type="button" class="button button-soft" data-close-modal>Cancel</button><button type="submit" class="button button-primary">Verify and enable</button></div></form>`);
+      } catch (error) {
+        notify(`Could not start two-factor setup: ${error.message}`, "error");
+      }
+      break;
+    }
+    case "admin-disable-mfa": {
+      try {
+        const { data, error } = await supabaseClient.client.auth.mfa.challenge({ factorId: id });
+        if (error) throw error;
+        openModal("Confirm two-factor removal", `<p class="security-help">Enter your current authenticator code to turn off two-factor authentication.</p><form data-form="admin-mfa-verify" data-factor="${escapeHTML(id)}" data-challenge="${escapeHTML(data.id)}" data-purpose="remove">${field("Authenticator code", "code", "", { required: true, min: 6 })}<div class="form-actions"><button type="button" class="button button-soft" data-close-modal>Cancel</button><button type="submit" class="button button-danger">Verify and turn off</button></div></form>`);
+      } catch (error) {
+        notify(`Could not verify the authenticator: ${error.message}`, "error");
+      }
+      break;
+    }
+    case "admin-signout-all":
+      if (confirmAction("Sign out this administrator account from all devices?")) {
+        try {
+          const { error } = await supabaseClient.client.auth.signOut({ scope: "global" });
+          if (error) throw error;
+          window.location.replace("auth.html?mode=login");
+        } catch (error) {
+          notify(`Could not sign out all devices: ${error.message}`, "error");
+        }
+      }
+      break;
+    case "admin-export-data":
+      try {
+        const data = await supabaseClient.getPrivacyExport(currentUser.id);
+        const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `skill-up-admin-data-${day(0)}.json`;
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 0);
+        notify("Your administrator data export has been downloaded.");
+      } catch (error) {
+        notify(`Could not export administrator data: ${error.message}`, "error");
+      }
+      break;
+    case "admin-request-export":
+    case "admin-request-correction":
+    case "admin-request-restriction":
+    case "admin-request-concern":
+    case "admin-request-deletion": {
+      const requestType = ({
+        "admin-request-export": "data_export",
+        "admin-request-correction": "correction",
+        "admin-request-restriction": "restriction",
+        "admin-request-concern": "privacy_concern",
+        "admin-request-deletion": "account_deletion"
+      })[action];
+      const title = ({
+        data_export: "Request data export",
+        correction: "Request data correction",
+        restriction: "Request processing restriction",
+        privacy_concern: "Report a privacy concern",
+        account_deletion: "Request account deletion"
+      })[requestType];
+      const confirmation = requestType === "account_deletion" ? field("Type DELETE to confirm your request", "confirmation", "", { required: true }) : "";
+      openModal(title, `<p class="security-help">Your request is recorded for review. It does not automatically change or delete account data.</p><form data-form="admin-privacy-request" data-type="${requestType}">${field("Details", "details", "", { type: "textarea", full: true, required: requestType !== "data_export" })}${confirmation}<div class="form-actions"><button type="button" class="button button-soft" data-close-modal>Cancel</button><button type="submit" class="button button-primary">Submit request</button></div></form>`);
+      break;
+    }
+    case "admin-password-recovery":
+      try {
+        const redirectTo = new URL("auth.html?mode=recovery", window.location.href).href;
+        const { error } = await supabaseClient.client.auth.resetPasswordForEmail(currentUser.email, { redirectTo });
+        if (error) throw error;
+        notify("Password recovery instructions were sent to your account email.");
+      } catch (error) {
+        notify(`Could not send password recovery instructions: ${error.message}`, "error");
+      }
+      break;
+    case "refresh-privacy-requests":
+      await refreshPrivacyRequests();
+      break;
+    case "privacy-review":
+    case "privacy-complete":
+    case "privacy-decline": {
+      if (!privacyRequest) {
+        notify("This privacy request is no longer available. Refresh the list.", "error");
+        return;
+      }
+      const status = action === "privacy-review" ? "In review" : action === "privacy-complete" ? "Completed" : "Declined";
+      if (action === "privacy-decline" && !confirmAction("Decline this privacy request?")) return;
+      if (action === "privacy-complete" && privacyRequest.request_type === "account_deletion" &&
+          !confirmAction("Confirm the deletion has been completed outside this dashboard? This status change does not delete the account.")) return;
+      try {
+        const { error } = await supabaseClient.client.from("privacy_requests")
+          .update({ status, updated_at: new Date().toISOString() })
+          .eq("id", id)
+          .select("id")
+          .single();
+        if (error) throw error;
+        await refreshPrivacyRequests();
+        notify(`Privacy request marked ${status.toLowerCase()}.`);
+      } catch (error) {
+        notify(`Could not update the privacy request: ${error.message}`, "error");
+      }
+      break;
+    }
     case "refresh-dashboard": refreshDashboard(); break;
     case "add-course": formModal("Create a course", "course", "", courseForm(), "Create course"); break;
     case "add-category": formModal("Add course category", "category", "", field("Category name", "name", "", { required: true, full: true }), "Add category"); break;
@@ -922,8 +1276,18 @@ async function handleAction(action, id) {
           addAudit(`Enrollment marked refunded: ${payment.id}`);
         }, "Enrollment status updated. No payment refund was processed.");
         if (saved) {
-          try { await updateLearnerEnrollment(payment.userId, payment.courseId, "Refunded", payment); }
-          catch (error) { notify(`Enrollment updated, but learner access could not be synced: ${error.message}`, "error"); }
+          try {
+            await updateLearnerEnrollment(payment.userId, payment.courseId, "Refunded", payment);
+          } catch (error) {
+            notify(`Enrollment was updated, but learner access could not be synced: ${error.message}`, "error");
+            break;
+          }
+          try {
+            const { error } = await supabaseClient.client.rpc("reverse_referral_conversion", { p_payment_id: payment.id });
+            if (error) throw error;
+          } catch (error) {
+            notify(`Course access was revoked, but the referral commission could not be reversed: ${error.message}`, "error");
+          }
         }
       }
       break;
@@ -952,8 +1316,25 @@ async function handleAction(action, id) {
           addAudit(`Enrollment approved after manual payment verification: ${enrollmentRequest.student} · ${enrollmentRequest.course}`);
         }, "Enrollment approved and course access granted. No payment was processed.");
         if (saved) {
-          try { await updateLearnerEnrollment(paymentRecord.userId, paymentRecord.courseId, "Approved", paymentRecord); }
-          catch (error) { notify(`Enrollment approved, but learner access could not be synced: ${error.message}`, "error"); }
+          try {
+            await updateLearnerEnrollment(paymentRecord.userId, paymentRecord.courseId, "Approved", paymentRecord);
+          } catch (error) {
+            notify(`Enrollment was approved, but learner access could not be synced: ${error.message}`, "error");
+            break;
+          }
+          if (paymentRecord.userId !== "local-learner") {
+            try {
+              const { error } = await supabaseClient.client.rpc("record_referral_conversion", {
+                p_referred_user_id: paymentRecord.userId,
+                p_course_id: paymentRecord.courseId,
+                p_payment_id: paymentRecord.id,
+                p_amount: paymentRecord.amount
+              });
+              if (error) throw error;
+            } catch (error) {
+              notify(`Payment was verified, but the referral commission could not be recorded: ${error.message}`, "error");
+            }
+          }
         }
       }
       break;
@@ -977,31 +1358,16 @@ async function handleAction(action, id) {
       exportCsv("skill-up-demo-students.csv", ["Student ID", "Name", "Email", "Joined", "Status", "Courses", "Progress"], state.students.map((item) => [item.id, item.name, item.email, item.joined, item.status, item.courses.map(courseName).join("; "), `${item.progress}%`]));
       break;
     case "export-report":
-      exportCsv("skill-up-demo-dashboard.csv", ["Metric", "Value"], [["Registered students", state.students.length], ["Active students", state.students.filter((item) => item.status === "Active").length], ["Published courses", state.courses.filter((item) => item.status === "Published").length], ["Successful payments", state.payments.filter((item) => item.status === "Successful").length], ["Demo gross revenue NGN", state.payments.filter((item) => item.status === "Successful").reduce((sum, item) => sum + item.amount, 0)], ["Pending demo withdrawals", state.withdrawals.filter((item) => item.status === "Pending").length]]);
+      exportCsv("skill-up-demo-dashboard.csv", ["Metric", "Value"], [["Registered students", state.students.length], ["Active students", state.students.filter((item) => item.status === "Active").length], ["Published courses", state.courses.filter((item) => item.status === "Published").length], ["Successful payments", state.payments.filter((item) => item.status === "Successful").length], ["Demo gross revenue NGN", state.payments.filter((item) => item.status === "Successful").reduce((sum, item) => sum + item.amount, 0)], ["Referral registrations", referralAdminSummary?.partners.reduce((sum, item) => sum + (Number(item.referrals) || 0), 0) || 0], ["Referral conversions", referralAdminSummary?.partners.reduce((sum, item) => sum + (Number(item.conversions) || 0), 0) || 0], ["Referral commissions NGN", referralAdminSummary?.partners.reduce((sum, item) => sum + (Number(item.commission) || 0), 0) || 0]]);
       break;
-    case "approve-withdrawal":
-    case "reject-withdrawal":
-      if (withdrawal && confirmAction(`${action === "approve-withdrawal" ? "Approve" : "Reject"} ${withdrawal.id}? No payout will be made.`)) commit(() => { withdrawal.status = action === "approve-withdrawal" ? "Approved" : "Rejected"; addAudit(`Demo withdrawal ${withdrawal.status.toLowerCase()}: ${withdrawal.id}`); }, `Withdrawal marked ${withdrawal.status.toLowerCase()} in Supabase.`);
+    case "set-referral-rate":
+      formModal("Set referral commission rate", "referral-rate", "", field("Commission rate (%)", "rate", referralAdminSummary?.rate ?? 15, { type: "number", min: 0, max: 100, required: true }), "Save rate");
       break;
-    case "referral-details":
-      if (referral) openModal("Referral partner", `<div class="detail-grid"><div class="detail-cell"><span>Partner</span><strong>${escapeHTML(referral.name)}</strong></div><div class="detail-cell"><span>Email</span><strong>${escapeHTML(referral.email)}</strong></div><div class="detail-cell"><span>Referral code</span><strong>${escapeHTML(referral.code)}</strong></div><div class="detail-cell"><span>Conversions</span><strong>${referral.conversions}</strong></div><div class="detail-cell"><span>Referral visits</span><strong>${referral.referrals}</strong></div><div class="detail-cell"><span>Commission</span><strong>${money(referral.commission)}</strong></div></div><div class="detail-block"><h3>Campaigns & activity</h3><p>Campaign attribution and referral activity are not connected.</p></div>`);
+    case "refresh-referrals":
+      referralAdminSummary = null;
+      referralAdminError = "";
+      void ensureReferralAdminSummary();
       break;
-    case "adjust-commission":
-      if (referral) formModal("Adjust demo commission", "commission", id, field("Adjustment amount (NGN)", "amount", 0, { type: "number", required: true }) + field("Reason", "reason", "", { full: true, required: true, placeholder: "Explain the adjustment" }), "Record adjustment");
-      break;
-    case "referral-campaign":
-      formModal("Create referral campaign", "campaign", "", field("Campaign name", "name", "", { required: true }) + field("Commission rate (%)", "rate", state.settings.referralRate, { type: "number", min: 0, max: 100, required: true }) + field("Campaign notes", "notes", "", { type: "textarea", full: true }), "Save campaign");
-      break;
-    case "toggle-campaign": {
-      const campaign = state.campaigns.find((item) => item.id === id);
-      if (campaign) commit(() => { campaign.status = campaign.status === "Active" ? "Paused" : "Active"; addAudit(`Referral campaign ${campaign.status.toLowerCase()}: ${campaign.name}`); }, `Campaign ${campaign.status.toLowerCase()}.`);
-      break;
-    }
-    case "delete-campaign": {
-      const campaign = state.campaigns.find((item) => item.id === id);
-      if (campaign && confirmAction(`Delete referral campaign "${campaign.name}"?`)) commit(() => { state.campaigns = state.campaigns.filter((item) => item.id !== id); addAudit(`Referral campaign deleted: ${campaign.name}`); }, "Campaign deleted.");
-      break;
-    }
     case "add-session": formModal("Schedule mentorship session", "session", "", sessionForm(), "Schedule session"); break;
     case "edit-mentorship-program": formModal("Mentorship programme flyer", "mentorship-program", "", mentorshipProgramForm(), "Save programme"); break;
     case "add-review": formModal("Add student question or assignment", "review", "", reviewForm(), "Add to review queue"); break;
@@ -1065,7 +1431,14 @@ async function handleAction(action, id) {
       formModal("Edit homepage content", "homepage", "", field("Hero headline", "headline", state.siteContent.headline, { full: true, required: true }) + field("Announcement banner", "announcement", state.siteContent.announcement, { full: true, placeholder: "Leave blank to hide the banner" }) + field("Banner image URL", "bannerUrl", state.siteContent.bannerUrl || "", { type: "url", full: true, placeholder: "https://…" }) + field("Contact email", "contactEmail", state.siteContent.contactEmail, { type: "email", required: true }), "Save homepage content");
       break;
     case "edit-legal":
-      formModal("Edit privacy policy & terms", "legal", "", field("Privacy policy", "privacyPolicy", state.siteContent.privacyPolicy, { type: "textarea", full: true, rows: 6 }) + field("Terms and conditions", "terms", state.siteContent.terms, { type: "textarea", full: true, rows: 6 }), "Save legal content");
+      formModal("Edit privacy & legal content", "legal", "", [
+        field("Privacy policy", "privacyPolicy", state.siteContent.privacyPolicy, { type: "textarea", full: true, rows: 6 }),
+        field("Terms of service", "terms", state.siteContent.terms, { type: "textarea", full: true, rows: 6 }),
+        field("Cookie policy", "cookiePolicy", state.siteContent.cookiePolicy, { type: "textarea", full: true, rows: 4 }),
+        field("Data processing policy", "dataProcessingPolicy", state.siteContent.dataProcessingPolicy, { type: "textarea", full: true, rows: 4 }),
+        field("Data retention policy", "dataRetentionPolicy", state.siteContent.dataRetentionPolicy, { type: "textarea", full: true, rows: 4 }),
+        field("Data protection contact (DPO)", "dpoContact", state.siteContent.dpoContact, { full: true, placeholder: "Email address or contact instructions" })
+      ].join(""), "Save legal content");
       break;
     case "add-testimonial": formModal("Add testimonial", "testimonial", "", testimonialForm(), "Save testimonial"); break;
     case "edit-testimonial": {
@@ -1158,6 +1531,69 @@ async function handleFormSubmit(form) {
   const kind = form.dataset.form;
   const id = form.dataset.id;
   const existing = (list) => list.find((item) => item.id === id);
+
+  if (kind === "admin-password") {
+    if (String(values.password).length < 8 || values.password !== values.confirmation) {
+      notify(values.password !== values.confirmation ? "The new passwords do not match." : "Use at least eight characters for your password.", "error");
+      return;
+    }
+    try {
+      const { error } = await supabaseClient.client.auth.updateUser({ password: String(values.password) });
+      if (error) throw error;
+      closeModal();
+      notify("Administrator password updated.");
+    } catch (error) {
+      notify(`Could not update the administrator password: ${error.message}`, "error");
+    }
+    return;
+  }
+  if (kind === "admin-mfa-verify") {
+    const mfa = supabaseClient.client.auth.mfa;
+    const factorId = form.dataset.factor;
+    try {
+      let challengeId = form.dataset.challenge;
+      if (!challengeId) {
+        const { data, error } = await mfa.challenge({ factorId });
+        if (error) throw error;
+        challengeId = data.id;
+      }
+      const { error } = await mfa.verify({ factorId, challengeId, code: String(values.code).trim() });
+      if (error) throw error;
+      if (form.dataset.purpose === "remove") {
+        const { error: removeError } = await mfa.unenroll({ factorId });
+        if (removeError) throw removeError;
+      }
+      adminPendingMfaFactor = null;
+      await refreshAdminSecurity();
+      closeModal();
+      render();
+      notify(form.dataset.purpose === "remove" ? "Administrator two-factor authentication turned off." : "Administrator two-factor authentication enabled.");
+    } catch (error) {
+      notify(`Could not verify the authenticator code: ${error.message}`, "error");
+    }
+    return;
+  }
+  if (kind === "admin-privacy-request") {
+    const requestType = form.dataset.type;
+    if (requestType === "account_deletion" && values.confirmation !== "DELETE") {
+      notify("Type DELETE to confirm your account deletion request.", "error");
+      return;
+    }
+    try {
+      const { error } = await supabaseClient.client.from("privacy_requests").insert({
+        user_id: currentUser.id,
+        request_type: requestType,
+        details: String(values.details || "").trim()
+      });
+      if (error) throw error;
+      closeModal();
+      await refreshPrivacyRequests();
+      notify("Your privacy request was submitted.");
+    } catch (error) {
+      notify(`Could not submit your privacy request: ${error.message}`, "error");
+    }
+    return;
+  }
 
   if (kind === "course") {
     const current = existing(state.courses);
@@ -1282,26 +1718,36 @@ async function handleFormSubmit(form) {
     return;
   }
   if (kind === "homepage") {
-    const content = { headline: values.headline.trim(), announcement: values.announcement.trim(), bannerUrl: values.bannerUrl.trim(), contactEmail: values.contactEmail.trim(), privacyPolicy: state.siteContent.privacyPolicy, terms: state.siteContent.terms };
+    const content = { ...state.siteContent, headline: values.headline.trim(), announcement: values.announcement.trim(), bannerUrl: values.bannerUrl.trim(), contactEmail: values.contactEmail.trim() };
     if (!content.headline || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(content.contactEmail)) { notify("Enter a homepage headline and valid contact email.", "error"); return; }
     if (commit(() => { state.siteContent = content; addAudit("Homepage copy updated locally"); }, "Homepage content saved locally.")) closeModal();
     return;
   }
   if (kind === "legal") {
-    if (commit(() => { state.siteContent.privacyPolicy = values.privacyPolicy.trim(); state.siteContent.terms = values.terms.trim(); addAudit("Privacy policy and terms updated locally"); }, "Legal page content saved locally.")) closeModal();
+    if (commit(() => {
+      ["privacyPolicy", "terms", "cookiePolicy", "dataProcessingPolicy", "dataRetentionPolicy", "dpoContact"].forEach((key) => {
+        state.siteContent[key] = String(values[key] || "").trim();
+      });
+      addAudit("Privacy and legal content updated");
+    }, "Privacy and legal content saved.")) closeModal();
     return;
   }
-  if (kind === "commission") {
-    const referral = existing(state.referrals);
-    const amount = Number(values.amount);
-    if (!referral || !Number.isFinite(amount) || !values.reason.trim()) { notify("Enter a valid adjustment amount and reason.", "error"); return; }
-    if (commit(() => { referral.commission = Math.max(0, referral.commission + amount); addAudit(`Demo commission adjustment for ${referral.name}: ${money(amount)} (${values.reason.trim()})`); }, "Commission adjustment recorded locally.")) closeModal();
-    return;
-  }
-  if (kind === "campaign") {
+  if (kind === "referral-rate") {
     const rate = Number(values.rate);
-    if (!values.name.trim() || !Number.isFinite(rate) || rate < 0 || rate > 100) { notify("Enter a campaign name and a commission rate from 0 to 100.", "error"); return; }
-    if (commit(() => { state.settings.referralRate = rate; state.campaigns.unshift({ id: `CMP-${Date.now()}`, name: values.name.trim(), rate, notes: values.notes.trim(), status: "Active", createdAt: day(0) }); addAudit(`Demo referral campaign created: ${values.name.trim()} (${rate}%)`); }, "Campaign configuration saved locally.")) closeModal();
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) { notify("Enter a commission rate from 0 to 100.", "error"); return; }
+    const { data, error } = await supabaseClient.client.rpc("set_referral_commission_rate", { p_rate: rate });
+    if (error) { notify(`Could not update the referral rate: ${error.message}`, "error"); return; }
+    try {
+      await refreshReferralAdminSummary();
+      closeModal();
+      render();
+      notify(`Referral commission rate set to ${Number(data)}%.`);
+    } catch (refreshError) {
+      referralAdminError = refreshError.message || "The referral rate was saved, but the summary could not be refreshed.";
+      closeModal();
+      render();
+      notify(`The rate was saved, but referral data could not refresh: ${referralAdminError}`, "error");
+    }
     return;
   }
   if (kind === "review-feedback") {
@@ -1389,6 +1835,25 @@ mainContent.addEventListener("input", (event) => {
 });
 
 mainContent.addEventListener("change", (event) => {
+  const preference = event.target.dataset.adminPrivacyPreference;
+  if (preference) {
+    const previousValue = adminPrivacyPreferences[preference];
+    const nextValue = event.target.checked;
+    event.target.disabled = true;
+    void supabaseClient.savePrivacyPreferences(currentUser.id, {
+      ...adminPrivacyPreferences,
+      [preference]: nextValue
+    }).then((savedPreferences) => {
+      Object.assign(adminPrivacyPreferences, savedPreferences);
+      notify("Privacy preference saved.");
+      if (activeView === "security") render();
+    }).catch((error) => {
+      adminPrivacyPreferences[preference] = previousValue;
+      notify(`Could not save this privacy preference: ${error.message}`, "error");
+      if (activeView === "security") render();
+    });
+    return;
+  }
   if (event.target.dataset.filter === "status") {
     activeFilters.status = event.target.value;
     render();
@@ -1418,5 +1883,9 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") sidebar.classList.remove("open");
 });
 
+void ensureReferralAdminSummary();
+void ensureAdminSecurityLoaded();
 render();
+void refreshPrivacyRequests();
+subscribeToPrivacyRequests();
 })();

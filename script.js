@@ -1,5 +1,10 @@
 const menuToggle = document.querySelector(".menu-toggle");
 const primaryNav = document.querySelector(".primary-nav");
+const welcomeVideoDialog = document.querySelector("#welcome-video-dialog");
+const welcomeVideo = welcomeVideoDialog.querySelector("video");
+
+welcomeVideoDialog.showModal();
+welcomeVideoDialog.addEventListener("close", () => welcomeVideo.pause());
 
 menuToggle.addEventListener("click", () => {
   const isExpanded = menuToggle.getAttribute("aria-expanded") === "true";

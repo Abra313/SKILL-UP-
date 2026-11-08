@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=2">
+    <link rel="stylesheet" href="styles.css?v=4">
   </head>
   <body>
     <header class="site-header">
@@ -347,10 +347,21 @@
         </div>
         <div class="footer-links"><h3>Explore</h3><a href="#home">Home</a><a href="#about">About Us</a><a href="#courses">Courses</a><a href="#mentorship">Mentorship</a></div>
         <div class="footer-links"><h3>Keep growing</h3><a href="#careers">Career Support</a><a href="#how-it-works">How it works</a><a href="#contact">Referral Programme</a><a href="#faq">FAQs</a></div>
-        <div class="footer-links"><h3>Say hello</h3><a href="#contact">Contact us</a><a href="mailto:hello@skill-up.ng">hello@skill-up.ng</a><a href="#privacy-policy" data-legal="privacyPolicy">Privacy policy</a><a href="#terms" data-legal="terms">Terms and conditions</a></div>
+        <div class="footer-links"><h3>Say hello</h3><a href="#contact">Contact us</a><a href="mailto:hello@skill-up.ng">hello@skill-up.ng</a><a href="#privacy-policy" data-legal="privacyPolicy">Privacy policy</a><a href="#terms" data-legal="terms">Terms and conditions</a><a href="#cookie-policy" data-legal="cookiePolicy">Cookie policy</a><a href="#data-processing" data-legal="dataProcessingPolicy">Data processing</a><a href="#data-retention" data-legal="dataRetentionPolicy">Data retention</a><a href="#dpo-contact" data-legal="dpoContact">Data protection contact</a></div>
       </div>
       <div class="container footer-bottom"><span>© 2026 SKILL-UP. All rights reserved.</span><span>Made for the next generation of builders <b>✳</b></span></div>
     </footer>
+    <dialog class="welcome-video-dialog" id="welcome-video-dialog" aria-labelledby="welcome-video-title">
+      <div class="welcome-video-heading">
+        <div><p class="eyebrow">WELCOME TO SKILL-UP</p><h2 id="welcome-video-title">Watch our welcome video</h2></div>
+        <form method="dialog"><button class="welcome-video-close" aria-label="Close welcome video">×</button></form>
+      </div>
+      <video class="welcome-video" controls autoplay muted playsinline preload="metadata">
+        <source src="assets/welcome-video.mp4" type="video/mp4">
+        Your browser does not support video playback.
+      </video>
+      <div class="welcome-video-footer"><p>Get a quick introduction to your learning journey.</p><form method="dialog"><button class="button button-dark" value="continue">Continue to website</button></form></div>
+    </dialog>
     <dialog class="legal-dialog" id="legal-dialog" aria-labelledby="legal-dialog-title">
       <form method="dialog"><button class="legal-dialog-close" aria-label="Close">×</button></form>
       <h2 id="legal-dialog-title"></h2>

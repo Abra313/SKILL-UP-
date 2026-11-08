@@ -7,7 +7,7 @@
     const workspace = await window.skillUpSupabase.loadWorkspace("public");
     courses = (workspace?.courses || []).filter((course) => course.status === "Published" && course.featured);
   } catch (error) {
-    grid.innerHTML = '<div class="empty-state" role="status">Could not load courses from Supabase. Check the project setup and try again.</div>';
+    grid.innerHTML = '<div class="empty-state" role="status">Could not load courses. Check your connection and try again.</div>';
     console.error("Could not load Supabase course data:", error);
     return;
   }

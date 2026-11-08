@@ -19,17 +19,23 @@ powershell -ExecutionPolicy Bypass -File .\setup-supabase.ps1
 
 The script signs in to Supabase CLI, links the project, and applies the migration in [`supabase/migrations/`](./supabase/migrations/). Supabase will ask you to authenticate and may ask for the project's database password. The migration creates the tables, signup trigger, helper function, and row-level security policies. Do not put a database password, access token, or service-role key in the website.
 
-Alternatively, in the Supabase dashboard open **SQL Editor**, paste the contents of [`supabase-schema.sql`](./supabase-schema.sql), and run it. This SQL file contains the same setup for manual provisioning.
+Alternatively, in the Supabase dashboard open **SQL Editor**, paste the contents of [`supabase-schema.sql`](./supabase-schema.sql), and run it. Then run the security/privacy migration from [`supabase/migrations/20261108001000_add_security_privacy_controls.sql`](./supabase/migrations/20261108001000_add_security_privacy_controls.sql) in the SQL Editor as well.
+
+For live referral tracking, apply [`supabase/migrations/20261107230000_enable_real_referrals.sql`](./supabase/migrations/20261107230000_enable_real_referrals.sql) and [`supabase/migrations/20261107234200_enable_live_referral_updates.sql`](./supabase/migrations/20261107234200_enable_live_referral_updates.sql) after the core schema. The CLI setup script applies pending migrations automatically. Referral links attribute new registrations; referral commissions are added only after an administrator independently verifies a course payment in **Payments & finance**. Online payment collection and automatic payouts require a separately configured payment provider.
 
 ## 2. Configure authentication
 
-In **Authentication → URL Configuration**, set the Site URL to the deployed HTTPS website URL and allow that site's `auth.html` callback URL for email confirmation.
+In **Authentication → URL Configuration**, set the Site URL to the deployed HTTPS website URL and allow that site's `auth.html` callback URL for email confirmation and password recovery.
 
 ```text
 https://your-deployed-domain.example/**
 ```
 
 In **Authentication → Providers → Email**, enable email/password sign-in. Email confirmation can remain enabled; new users will be asked to confirm their email before their first sign-in.
+
+Learner settings and the admin dashboard's **Security & Privacy** page use Auth for password changes, password recovery and TOTP two-factor authentication. Configure the Authenticator Assurance Level and TOTP factor settings in **Authentication → Multi-Factor Authentication**. The privacy migration creates the preference and request tables with row-level security and enables their Realtime updates. Admins review learner requests from the combined **Security & Privacy** page. Apply the migration before using privacy settings or requests.
+
+Session-wide logout is supported by Auth. Per-device login history, IP/location audit, suspicious-login detection, custom security alert delivery, automatic data correction/deletion, and a retention schedule require additional server-side services and are not provided by the static client. Notification and consent choices are saved as preferences; they do not activate delivery or tracking services on their own.
 
 ## 3. Assign an administrator
 

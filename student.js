@@ -37,12 +37,41 @@ const initialLearnerState = () => ({
   jobs: [],
   resources: [],
   savedJobs: [],
-  referral: { active: false, code: "", registrations: 0, conversions: 0, commission: 0, withdrawals: [], history: [] },
   cart: [],
   announcementsRead: false,
   profileHistory: [],
   messageSentAt: null
 });
+const defaultPrivacyPreferences = {
+  product_email: false,
+  marketing_email: false,
+  sms_notifications: false,
+  whatsapp_notifications: false,
+  analytics_cookies: false,
+  third_party_sharing: false
+};
+const securityCenter = {
+  preferences: { ...defaultPrivacyPreferences },
+  requests: [],
+  factors: [],
+  session: null,
+  loaded: false,
+  loading: false,
+  error: "",
+  realtimeError: "",
+  mfaError: "",
+  pendingFactor: null,
+  channel: null
+};
+const referralCenter = {
+  summary: null,
+  loading: false,
+  error: "",
+  realtimeError: "",
+  channel: null,
+  promise: null
+};
+let securityLoadPromise = null;
 
 function escapeLearner(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -116,7 +145,7 @@ try {
     await supabaseClient.saveWorkspace(`learner:${currentUser.id}`, snapshot);
   }
 } catch (error) {
-  document.querySelector("#learner-content").innerHTML = `<section class="learner-panel"><div class="learner-panel-body"><h2>Could not load Supabase data</h2><p>${escapeLearner(error.message || "Check the Supabase project setup and try again.")}</p></div></section>`;
+  document.querySelector("#learner-content").innerHTML = `<section class="learner-panel"><div class="learner-panel-body"><h2>Could not load account data</h2><p>${escapeLearner(error.message || "Check your connection and try again.")}</p></div></section>`;
   return;
 }
 let activeLearnerView = "dashboard";
@@ -137,13 +166,13 @@ async function saveLearnerState(mutator, message) {
   try {
     await supabaseClient.saveWorkspace(`learner:${currentUser.id}`, snapshot);
     persistedLearnerState = JSON.parse(JSON.stringify(learnerState));
-    if (message) notify(`${message} Synced with Supabase.`);
+    if (message) notify(`${message} Synced with your account.`);
     renderLearnerView();
     return true;
   } catch (error) {
     learnerState = persistedLearnerState;
     renderLearnerView();
-    notify(`Could not sync this change with Supabase: ${error.message}`, "error");
+    notify(`Could not sync this change with your account: ${error.message}`, "error");
     return false;
   }
 }
@@ -397,7 +426,7 @@ function renderMentorship() {
   const instructors = [...new Set(learnerState.courses.map((course) => course.instructor).filter(Boolean))];
   const supportOptions = [...instructors, "Group training"];
   return `${pageHeading("Mentorship & support", "Book time with a mentor, join available training, and get feedback as you learn.")}
-    ${notice("Session requests and course questions are saved in your Supabase account. They are not sent to mentors.")}
+    ${notice("Session requests and course questions are saved to your account. They are not sent to mentors.")}
     <div class="learner-grid"><section class="learner-panel"><header class="learner-panel-header"><div><h2>Course instructors</h2><p>Request support from an instructor listed on your courses</p></div></header><div class="learner-panel-body"><div class="mentor-list">${instructors.map((name) => `<div class="mentor-row"><span class="learner-avatar">${escapeLearner(name.split(/\s+/).map((part) => part[0] || "").slice(0, 2).join("").toUpperCase())}</span><div class="learner-mentor-copy"><strong>${escapeLearner(name)}</strong><small>Course instructor</small></div></div>`).join("") || empty("Instructor details appear when courses are published.")}</div><form data-learner-form="booking" style="margin-top:15px"><div class="mentorship-booking"><div class="learner-field full"><label for="booking-title">What would you like help with?</label><input id="booking-title" name="title" required placeholder="e.g. Review my portfolio project"></div><div class="learner-field"><label for="booking-mentor">Instructor / programme</label><select id="booking-mentor" name="mentor">${supportOptions.map((item) => `<option>${escapeLearner(item)}</option>`).join("")}</select></div><div class="learner-field"><label for="booking-course">Related course</label><select id="booking-course" name="courseId">${enrolledCourses().map((course) => `<option value="${escapeLearner(course.id)}">${escapeLearner(course.title)}</option>`).join("")}</select></div><div class="learner-field"><label for="booking-date">Preferred date</label><input id="booking-date" name="date" type="date" min="${learnerDay()}" required></div><div class="learner-field"><label for="booking-time">Preferred time</label><input id="booking-time" name="time" type="time" value="14:00" required></div></div><button class="learner-button learner-button-primary" type="submit">Request session ↗</button></form></div></section>
     ${panel("Your mentorship sessions", "Upcoming bookings and learning history", `<div class="activity-list">${sessions || empty("No sessions booked yet.", "Use the form to request a mentorship session.")}</div>`)}
     </div><div class="learner-grid">${panel("Ask a mentor", "Share a question about an enrolled course", `<form data-learner-form="question"><div class="learner-field"><label for="question-course">Course</label><select id="question-course" name="courseId" required>${enrolledCourses().map((course) => `<option value="${escapeLearner(course.id)}">${escapeLearner(course.title)}</option>`).join("")}</select></div><div class="learner-field"><label for="question-text">Your question</label><textarea id="question-text" name="title" required placeholder="Tell us what you are working through…"></textarea></div><button class="learner-button learner-button-primary" type="submit">Send question</button></form>`, "")}
@@ -447,35 +476,201 @@ function renderCareers() {
     <h2 class="section-title" id="career-resources">Career resources</h2><div class="resource-grid">${resources || empty("No resources available.")}</div>`;
 }
 
+async function refreshReferralCenter() {
+  const summary = await supabaseClient.getMyReferralSummary();
+  referralCenter.summary = {
+    code: String(summary.code || ""),
+    rate: Number(summary.rate) || 0,
+    registrations: Number(summary.registrations) || 0,
+    conversions: Number(summary.conversions) || 0,
+    commission: Number(summary.commission) || 0,
+    history: Array.isArray(summary.history) ? summary.history : []
+  };
+}
+
+function ensureReferralCenterLoaded() {
+  if (referralCenter.summary) return Promise.resolve();
+  if (referralCenter.promise) return referralCenter.promise;
+  referralCenter.loading = true;
+  referralCenter.promise = (async () => {
+    try {
+      await refreshReferralCenter();
+      referralCenter.error = "";
+      if (!referralCenter.channel && supabaseClient.subscribeReferrals) {
+        referralCenter.channel = supabaseClient.subscribeReferrals(
+          LEARNER_ID,
+          () => {
+            void refreshReferralCenter().then(() => {
+              referralCenter.realtimeError = "";
+              if (activeLearnerView === "referrals") renderLearnerView();
+            }).catch((error) => {
+              referralCenter.realtimeError = error.message || "Referral activity could not be refreshed.";
+              if (activeLearnerView === "referrals") renderLearnerView();
+            });
+          },
+          (error) => {
+            referralCenter.realtimeError = error.message || "Live referral updates are unavailable.";
+            if (activeLearnerView === "referrals") renderLearnerView();
+          }
+        );
+      }
+    } catch (error) {
+      referralCenter.error = error.message || "Referral information could not be loaded.";
+    } finally {
+      referralCenter.loading = false;
+      referralCenter.promise = null;
+      if (activeLearnerView === "referrals") renderLearnerView();
+    }
+  })();
+  return referralCenter.promise;
+}
+
 function renderReferrals() {
-  const referral = learnerState.referral;
-  const history = referral.history.map((item) => `<div class="activity-row"><span class="activity-icon violet">${item.conversion ? "✓" : "↗"}</span><div class="activity-copy"><strong>${escapeLearner(item.name || "New referral")}</strong><small>${escapeLearner(item.description || "Joined using your referral link")} · ${learnerDate(item.date)}</small></div><span class="activity-time">${item.conversion ? "Purchase" : "Registration"}</span></div>`).join("");
-  const withdrawals = referral.withdrawals.map((item) => `<div class="activity-row"><span class="activity-icon amber">◷</span><div class="activity-copy"><strong>Withdrawal request · ${learnerMoney(item.amount)}</strong><small>Requested ${learnerDate(item.date)} · ${escapeLearner(item.method)}</small></div>${badge(item.status, item.status === "Pending" ? "pending" : "")}</div>`).join("");
-  if (!referral.active) {
-    return `${pageHeading("Referral programme", "As a learner, you can also share SKILL-UP with friends and track eligible referrals.")}
-      ${notice("Referral registrations, conversions, commissions and withdrawal requests are demo records. Referrals and payouts are not verified or processed in this demo.")}
-      <div class="welcome-banner"><div class="welcome-copy"><p class="learner-kicker">LEARN, SHARE & GROW TOGETHER</p><h2>Invite friends to <span>skill up.</span></h2><p>Activate your referral demo to receive a personal demo code, track local activity and see how a referral dashboard could work.</p></div><div class="welcome-mark">↗</div></div>
-      <div class="learner-grid">${panel("How the referral programme works", "A simple way to share what you're learning", `<div class="activity-list"><div class="activity-row"><span class="activity-icon">1</span><div class="activity-copy"><strong>Activate your referral demo</strong><small>Generate your unique sample referral code.</small></div></div><div class="activity-row"><span class="activity-icon violet">2</span><div class="activity-copy"><strong>Share your referral link</strong><small>Invite friends to explore the learner demo.</small></div></div><div class="activity-row"><span class="activity-icon amber">3</span><div class="activity-copy"><strong>Track sample activity</strong><small>Qualifying purchases and commissions are not verified.</small></div></div></div><div style="margin-top:12px">${button("Activate referral demo", "activate-referral", "", "primary")}</div>`) }
-      ${panel("A note about rewards", "Referral activity is not a guaranteed income", `<p style="color:#7b8982;font-size:12px;line-height:1.7">Referral amounts and purchases shown in this prototype are fictional. Real commissions should only be calculated from verified successful transactions under the programme's published terms. Withdrawal requests need identity review and secure payment processing.</p>`)}</div>`;
-  }
-  return `${pageHeading("Your referral space", "Share your personal demo link and keep track of your referral activity.", button("Request withdrawal", "request-withdrawal", "", "primary"))}
-    ${notice("Referral totals may include sample data and are not verified income. No payout service is connected.")}
-    <div class="referral-banner"><div><h2>Good skills are worth sharing.</h2><p>Your demo partner code is ready. Share it with your network and encourage friends to explore a course.</p></div><div class="referral-code-box"><span>${escapeLearner(referral.code)}</span><button data-action="copy-referral">Copy link</button></div></div>
-    <div class="referral-stats"><div class="referral-stat"><span>Registrations</span><strong>${referral.registrations}</strong></div><div class="referral-stat"><span>Course purchases</span><strong>${referral.conversions}</strong></div><div class="referral-stat"><span>Demo commission</span><strong>${learnerMoney(referral.commission)}</strong></div><div class="referral-stat"><span>Pending withdrawal</span><strong>${learnerMoney(referral.withdrawals.filter((item) => item.status === "Pending").reduce((sum, item) => sum + item.amount, 0))}</strong></div></div>
-    <div class="learner-grid">${panel("Referral activity", "Sample registrations and qualifying purchases", `<div class="activity-list">${history || empty("Your referral activity will appear here.", "Share your link to get started.")}</div>`)}
-    ${panel("Withdrawal requests", "Local request history", `<div class="activity-list">${withdrawals || empty("No withdrawal requests yet.")}</div>`)}</div>`;
+  if (!referralCenter.summary && !referralCenter.loading) void ensureReferralCenterLoaded();
+  if (referralCenter.loading) return `${pageHeading("Referral programme", "Share your link and track eligible referrals.")}<section class="learner-panel"><div class="learner-panel-body"><p class="security-description">Loading your referral information…</p></div></section>`;
+  if (referralCenter.error) return `${pageHeading("Referral programme", "Share your link and track eligible referrals.")}<section class="learner-panel"><div class="learner-panel-body"><p class="security-description">Referral information could not be loaded: ${escapeLearner(referralCenter.error)}</p>${button("Try again", "refresh-referrals", "", "soft")}</div></section>`;
+  if (!referralCenter.summary) return "";
+  const referral = referralCenter.summary;
+  const history = referral.history.map((item) => `<div class="activity-row"><span class="activity-icon violet">${item.conversion ? "✓" : "↗"}</span><div class="activity-copy"><strong>${escapeLearner(item.name || "Referred learner")}</strong><small>${escapeLearner(item.description || "Registered using your referral link")} · ${learnerDate(item.date)}</small></div><span class="activity-time">${item.conversion ? "Verified purchase" : "Registration"}</span></div>`).join("");
+  const referralUrl = new URL("auth.html", window.location.href);
+  referralUrl.searchParams.set("mode", "register");
+  referralUrl.searchParams.set("ref", referral.code);
+  const realtimeMessage = referralCenter.realtimeError ? `<p class="security-description" role="status">Live updates are temporarily unavailable. Refresh the page to see the latest activity.</p>` : "";
+  return `${pageHeading("Referral programme", "Share your personal link and track registered learners and verified course purchases.")}
+    <section class="referral-hero"><div class="referral-hero-copy"><p class="learner-kicker">YOUR REFERRAL SPACE</p><h2>Good skills are worth <span>sharing.</span></h2><p>When someone creates an account through your link, their registration appears here. Eligible commissions are added after a course payment is independently verified.</p></div><div class="referral-link-card"><div class="referral-link-label">YOUR PERSONAL LINK</div><div class="referral-link-code">${escapeLearner(referralUrl.href)}</div><button class="learner-button learner-button-lime" data-action="copy-referral">Copy referral link</button><div class="referral-link-foot"><span class="referral-link-status"></span>Your referral code: ${escapeLearner(referral.code)}</div></div><span class="referral-hero-mark" aria-hidden="true">↗</span></section>
+    ${realtimeMessage}
+    <div class="referral-metrics"><div class="referral-metric"><span>Registrations</span><strong>${referral.registrations}</strong><small>Accounts attributed to your link</small></div><div class="referral-metric violet"><span>Verified purchases</span><strong>${referral.conversions}</strong><small>Referred learners with a verified payment</small></div><div class="referral-metric lime"><span>Commission balance</span><strong>${learnerMoney(referral.commission)}</strong><small>${referral.rate}% of verified payments</small></div><div class="referral-metric coral"><span>Programme rate</span><strong>${referral.rate}%</strong><small>Set by SKILL-UP</small></div></div>
+    <div class="learner-grid referral-activity-grid">${panel("Referral activity", "Registrations and verified course purchases", `<div class="activity-list">${history || empty("No registrations yet.", "Share your referral link to get started.")}</div>`)}
+    ${panel("Commission & payouts", "Verified earnings", `<p class="referral-rewards-note">Commissions are credited after an administrator verifies a course payment. Payout requests are not available until a payment provider is configured.</p>`)}</div>`;
 }
 
 function renderProfile() {
   const profile = learnerState.profile;
   const purchases = learnerState.purchases.filter((purchase) => purchase.status === "Successful").map((purchase) => `<div class="activity-row"><span class="activity-icon">▤</span><div class="activity-copy"><strong>${escapeLearner(getCourse(purchase.courseId)?.title || "Course")}</strong><small>${learnerDate(purchase.purchasedAt)} · ${escapeLearner(purchase.receipt)}</small></div><strong>${learnerMoney(purchase.amount)}</strong></div>`).join("");
+  const verifiedFactor = securityCenter.factors.find((factor) => factor.factor_type === "totp" && factor.status === "verified");
+  const preferences = [
+    ["product_email", "Product and learning emails", "Learning updates and account-related product messages."],
+    ["marketing_email", "Marketing emails", "Optional offers and promotional messages."],
+    ["sms_notifications", "SMS notifications", "Optional text messages; an SMS provider must be configured."],
+    ["whatsapp_notifications", "WhatsApp notifications", "Optional WhatsApp messages; a WhatsApp provider must be configured."],
+    ["analytics_cookies", "Analytics cookies", "Your saved choice. No analytics-cookie provider is currently connected."],
+    ["third_party_sharing", "Third-party data sharing", "Your saved choice. No optional third-party sharing integration is currently connected."]
+  ].map(([key, title, description]) => `<label class="security-preference"><span><strong>${title}</strong><small>${description}</small></span><input type="checkbox" data-privacy-preference="${key}" ${securityCenter.preferences[key] ? "checked" : ""} ${securityCenter.loading || securityCenter.error ? "disabled" : ""} aria-label="${title}"></label>`).join("");
+  const requests = securityCenter.requests.map((request) => `<div class="security-request-row"><div><strong>${escapeLearner(privacyRequestName(request.request_type))}</strong><small>${escapeLearner(request.details || "No additional details")} · ${escapeLearner(new Date(request.created_at).toLocaleString())}</small></div>${badge(request.status, request.status === "Pending" ? "pending" : "")}</div>`).join("");
+  const factorSummary = verifiedFactor ? `Authenticator app · ${escapeLearner(verifiedFactor.friendly_name || "TOTP")}` : securityCenter.factors.length ? "No verified authenticator" : "Not enabled";
+  const browserName = /Edg\//.test(navigator.userAgent) ? "Microsoft Edge" : /Firefox\//.test(navigator.userAgent) ? "Mozilla Firefox" : /Chrome\//.test(navigator.userAgent) ? "Google Chrome" : /Safari\//.test(navigator.userAgent) ? "Safari" : "Browser";
+  const requestError = securityCenter.error ? `<p class="security-description" role="status">Privacy controls are temporarily unavailable. Please try again later.</p>` : "";
+  const mfaNotice = securityCenter.mfaError ? `<p class="security-description">${escapeLearner(securityCenter.mfaError)}</p>` : "";
+  const realtimeNotice = securityCenter.realtimeError ? `<p class="security-description">${escapeLearner(securityCenter.realtimeError)}</p>` : "";
   return `${pageHeading("Profile & settings", "Manage the learner profile associated with your account.")}
     <div class="account-profile"><aside class="profile-card"><div class="profile-photo">${profile.avatar ? `<img src="${escapeLearner(profile.avatar)}" alt="Profile photo">` : escapeLearner(profile.name.split(/\s+/).map((item) => item[0] || "").slice(0, 2).join("").toUpperCase())}</div><h2>${escapeLearner(profile.name)}</h2><p>Connected to your SKILL-UP account</p>${badge(profile.role)}<div><label class="learner-button learner-button-soft" for="avatar-upload">Upload profile photo</label><input id="avatar-upload" type="file" accept="image/*" hidden></div><div class="profile-save">${button("Explore courses", "navigate-catalog", "", "soft")}</div></aside>
-    <section class="profile-edit-card"><h2>Personal information</h2><p>Your profile is saved to your account.</p><form data-learner-form="profile"><div class="profile-edit-grid"><div class="learner-field"><label for="profile-name">Full name</label><input id="profile-name" name="name" required minlength="2" value="${escapeLearner(profile.name)}"></div><div class="learner-field"><label for="profile-email">Email address</label><input id="profile-email" value="${escapeLearner(profile.email)}" readonly></div><div class="learner-field"><label for="profile-location">Location</label><input id="profile-location" name="location" value="${escapeLearner(profile.location || "")}" placeholder="City, country"></div><div class="learner-field full"><label for="profile-bio">About you</label><textarea id="profile-bio" name="bio" maxlength="240">${escapeLearner(profile.bio || "")}</textarea></div></div><div class="security-row"><div><strong>Learning notifications</strong><small>Preference saved in your Supabase account</small></div><input type="checkbox" name="notifications" ${profile.notifications ? "checked" : ""} aria-label="Learning notifications"></div><div class="modal-actions"><button class="learner-button learner-button-primary" type="submit">Save profile</button></div></form>
-    <div class="security-row"><div><strong>Supabase account storage</strong><small>Your profile and learning activity are saved to your authenticated account.</small></div></div>
+    <section class="profile-edit-card"><h2>Personal information</h2><p>Your profile is saved to your account.</p><form data-learner-form="profile"><div class="profile-edit-grid"><div class="learner-field"><label for="profile-name">Full name</label><input id="profile-name" name="name" required minlength="2" value="${escapeLearner(profile.name)}"></div><div class="learner-field"><label for="profile-email">Email address</label><input id="profile-email" value="${escapeLearner(profile.email)}" readonly></div><div class="learner-field"><label for="profile-location">Location</label><input id="profile-location" name="location" value="${escapeLearner(profile.location || "")}" placeholder="City, country"></div><div class="learner-field full"><label for="profile-bio">About you</label><textarea id="profile-bio" name="bio" maxlength="240">${escapeLearner(profile.bio || "")}</textarea></div></div><div class="security-row"><div><strong>Learning notifications</strong></div><input type="checkbox" name="notifications" ${(securityCenter.loaded ? securityCenter.preferences.product_email : profile.notifications) ? "checked" : ""} aria-label="Learning notifications"></div><div class="modal-actions"><button class="learner-button learner-button-primary" type="submit">Save profile</button></div></form>
     </section></div>
+    <div class="security-center-grid">
+      <section class="learner-panel security-center-card"><div class="learner-panel-body"><div class="security-card-heading"><span class="security-card-icon">⌑</span><div><h2>Account security</h2><p>Protect sign-in and control your active access.</p></div></div>
+        <div class="security-row"><div><strong>Password</strong><small>Manage your account password.</small></div>${button("Change password", "change-password")}</div>
+        <div class="security-row"><div><strong>Two-factor authentication</strong><small>${factorSummary}</small></div>${verifiedFactor ? button("Turn off", "disable-mfa", verifiedFactor.id, "danger") : button("Set up 2FA", "enable-mfa", "", "soft")}</div>
+        ${mfaNotice}
+        <div class="security-section-divider"><strong>Current session</strong>${securityCenter.loading ? badge("Loading") : badge(securityCenter.session ? "Active" : "Unavailable")}</div>
+        <div class="security-row"><div><strong>This browser · ${escapeLearner(browserName)}</strong><small>Approximate location and IP are not collected by this browser page.</small></div>${button("Sign out", "logout-current", "", "soft")}</div>
+        <div class="security-action-row">${button("Log out all devices", "logout-all", "", "danger")}</div>
+        <p class="security-description">A device-by-device login history, IP/location, and suspicious-login detection require a trusted server-side audit service; they are not reported as available here.</p>
+      </div></section>
+      <section class="learner-panel security-center-card"><div class="learner-panel-body"><div class="security-card-heading"><span class="security-card-icon violet">◉</span><div><h2>Privacy &amp; consent</h2><p>Choices are saved to your authenticated account.</p></div></div>
+        ${requestError}${realtimeNotice}${securityCenter.loading ? `<p class="security-description">Loading your saved privacy choices…</p>` : preferences}
+        <p class="security-description">Profile visibility controls are not available because public learner profiles are not implemented. Saved messaging and sharing choices only take effect when the corresponding provider or integration is configured.</p>
+        <div class="security-section-divider"><strong>AI data processing</strong></div><p class="security-description">This learner portal does not send your account profile or learning activity to an AI service.</p>
+      </div></section>
+      <section class="learner-panel security-center-card"><div class="learner-panel-body"><div class="security-card-heading"><span class="security-card-icon coral">▤</span><div><h2>Personal data</h2><p>Review and download information associated with this account.</p></div></div>
+        <div class="security-data-summary"><div><span>Account</span><strong>${escapeLearner(profile.email)}</strong></div><div><span>Learning records</span><strong>${learnerState.enrollments.length} enrollments · ${Object.keys(learnerState.progress).length} progress records</strong></div></div>
+        <div class="security-action-row">${button("Download my data", "download-personal-data", "", "soft")}${button("Request data export", "privacy-request", "", "soft", 'data-type="data_export"')}</div>
+        <div class="security-section-divider"><strong>Data requests</strong></div>${requests || empty("No privacy requests yet.")}<div class="security-action-row" style="margin-top:10px">${button("Request correction", "privacy-request", "", "soft", 'data-type="correction"')}${button("Restrict processing", "privacy-request", "", "soft", 'data-type="restriction"')}${button("Report a privacy concern", "privacy-request", "", "soft", 'data-type="privacy_concern"')}${button("Request account deletion", "privacy-request", "", "danger", 'data-type="account_deletion"')}</div>
+        <p class="security-description">Requests are recorded for review; deletion and correction are not completed automatically. No data-retention schedule is configured in this portal yet.</p>
+      </div></section>
+      <section class="learner-panel security-center-card"><div class="learner-panel-body"><div class="security-card-heading"><span class="security-card-icon">♧</span><div><h2>Alerts &amp; legal</h2><p>Understand what is currently connected.</p></div></div>
+        <div class="security-section-divider"><strong>Privacy &amp; legal</strong></div>
+        <div class="security-action-row"><a class="learner-button learner-button-soft" href="index.html?legal=privacyPolicy">Privacy policy</a><a class="learner-button learner-button-soft" href="index.html?legal=terms">Terms of service</a><a class="learner-button learner-button-soft" href="mailto:hello@skill-up.ng?subject=Privacy%20concern">Contact privacy support</a></div>
+        <p class="security-description">Cookie policy and data-retention policy have not been published. Use privacy support for questions or a data-protection contact request.</p>
+      </div></section>
+    </div>
     <section class="learner-panel" style="margin-top:14px"><header class="learner-panel-header"><div><h2>Purchase history</h2><p>Your enrollment records synced to your account</p></div><button class="learner-link-button" data-action="export-purchases">Download CSV ↓</button></header><div class="learner-panel-body"><div class="activity-list">${purchases || empty("No course purchases recorded.")}</div></div></section>`;
 }
+
+function privacyRequestName(type) {
+  return ({
+    data_export: "Data export",
+    account_deletion: "Account deletion",
+    correction: "Data correction",
+    restriction: "Processing restriction",
+    privacy_concern: "Privacy concern"
+  })[type] || "Privacy request";
+}
+
+async function refreshPrivacyCenter() {
+  const [preferences, requests] = await Promise.all([
+    supabaseClient.loadPrivacyPreferences(LEARNER_ID),
+    supabaseClient.loadPrivacyRequests(LEARNER_ID)
+  ]);
+  securityCenter.preferences = {
+    ...defaultPrivacyPreferences,
+    product_email: Boolean(learnerState.profile.notifications),
+    ...(preferences || {})
+  };
+  securityCenter.requests = requests;
+}
+
+function ensureSecurityCenterLoaded() {
+  if (securityCenter.loaded) return Promise.resolve();
+  if (securityLoadPromise) return securityLoadPromise;
+  securityCenter.loading = true;
+  securityLoadPromise = (async () => {
+    try {
+      const { data: sessionData, error: sessionError } = await supabaseClient.client.auth.getSession();
+      if (sessionError) throw sessionError;
+      securityCenter.session = sessionData.session;
+      try {
+        if (!supabaseClient.client.auth.mfa?.listFactors) throw new Error("Two-factor authentication is not supported by the current account service.");
+        const { data, error } = await supabaseClient.client.auth.mfa.listFactors();
+        if (error) throw error;
+        securityCenter.factors = data?.all || data?.totp || [];
+      } catch (error) {
+        securityCenter.mfaError = error.message || "Two-factor authentication status could not be loaded.";
+      }
+      await refreshPrivacyCenter();
+      securityCenter.loaded = true;
+      if (supabaseClient.subscribePrivacyCenter) {
+        securityCenter.channel = supabaseClient.subscribePrivacyCenter(
+          LEARNER_ID,
+          async () => {
+            try {
+              await refreshPrivacyCenter();
+              securityCenter.realtimeError = "";
+              if (activeLearnerView === "profile") renderLearnerView();
+            } catch (error) {
+              securityCenter.realtimeError = error.message || "Privacy settings could not be refreshed.";
+              if (activeLearnerView === "profile") renderLearnerView();
+              notify(`Live privacy update failed: ${securityCenter.realtimeError}`, "error");
+            }
+          },
+          (error) => {
+            securityCenter.realtimeError = error.message || "Live privacy updates are unavailable.";
+            if (activeLearnerView === "profile") renderLearnerView();
+            notify(`Privacy updates could not connect: ${securityCenter.realtimeError}`, "error");
+          }
+        );
+      }
+    } catch (error) {
+      securityCenter.error = error.message || "Privacy settings could not be loaded.";
+    } finally {
+      securityCenter.loaded = true;
+      securityCenter.loading = false;
+      securityLoadPromise = null;
+      if (activeLearnerView === "profile") renderLearnerView();
+    }
+  })();
+  return securityLoadPromise;
+}
+
 function findLearnerCertificate(id) {
   for (const course of learnerState.courses) {
     const progress = getProgress(course.id);
@@ -485,6 +680,8 @@ function findLearnerCertificate(id) {
 }
 
 function renderLearnerView() {
+  if (activeLearnerView === "profile" && !securityCenter.loaded && !securityCenter.loading) void ensureSecurityCenterLoaded();
+  if (activeLearnerView === "referrals" && !referralCenter.summary && !referralCenter.loading) void ensureReferralCenterLoaded();
   document.querySelector("#learner-current-page").textContent = learnerViews[activeLearnerView] || "Course lessons";
   learnerNav.forEach((item) => {
     const active = item.dataset.view === activeLearnerView || (activeLearnerView === "course" && item.dataset.view === "learning");
@@ -590,9 +787,109 @@ function exportPurchases() {
   notify("Demo purchase history downloaded.");
 }
 
+function openPrivacyRequest(type) {
+  const title = privacyRequestName(type);
+  const deletionConfirmation = type === "account_deletion"
+    ? `<div class="learner-field"><label for="delete-confirmation">Type DELETE to confirm your request</label><input id="delete-confirmation" name="confirmation" required pattern="DELETE" autocomplete="off"></div>`
+    : "";
+  openLearnerModal(title, `<p class="security-description">This request will be saved to your account for administrator review. It does not automatically change or delete account data.</p><form data-learner-form="privacy-request" data-type="${escapeLearner(type)}"><div class="learner-field"><label for="privacy-request-details">Details</label><textarea id="privacy-request-details" name="details" maxlength="2000" ${type === "data_export" ? "" : "required"} placeholder="Describe the information or action you are requesting."></textarea></div>${deletionConfirmation}<div class="modal-actions"><button class="learner-button learner-button-soft" type="button" data-close-learner-modal>Cancel</button><button class="learner-button learner-button-primary" type="submit">Submit request</button></div></form>`);
+}
+
+function openPasswordChange() {
+  openLearnerModal("Change password", `<form data-learner-form="password-change"><div class="learner-field"><label for="new-password">New password</label><input id="new-password" name="password" type="password" autocomplete="new-password" minlength="8" required></div><div class="learner-field"><label for="confirm-new-password">Confirm new password</label><input id="confirm-new-password" name="confirmation" type="password" autocomplete="new-password" minlength="8" required></div><p class="security-description">Choose at least eight characters. A recent sign-in may be required before accepting this change.</p><div class="modal-actions"><button class="learner-button learner-button-soft" type="button" data-close-learner-modal>Cancel</button><button class="learner-button learner-button-primary" type="submit">Update password</button></div></form>`);
+}
+
+async function beginMfaEnrollment() {
+  const mfa = supabaseClient.client.auth.mfa;
+  if (!mfa?.enroll) throw new Error("Two-factor authentication is not supported by the current account service.");
+  const { data, error } = await mfa.enroll({ factorType: "totp", friendlyName: "SKILL-UP learner account" });
+  if (error) throw error;
+  securityCenter.pendingFactor = { id: data.id, secret: data.totp?.secret, qrCode: data.totp?.qr_code };
+  const qrCode = String(data.totp?.qr_code || "");
+  const qrImage = /^data:image\/svg\+xml(?:;|,)/i.test(qrCode) ? `<img class="mfa-qr-code" src="${escapeLearner(qrCode)}" alt="Authenticator setup QR code">` : "";
+  openLearnerModal("Set up two-factor authentication", `<p class="security-description">Scan this code with your authenticator app, or enter the setup key manually. The key is shown only in this dialog.</p>${qrImage}<div class="mfa-secret"><strong>Manual setup key</strong><code>${escapeLearner(data.totp?.secret || "A setup key was not returned.")}</code></div><form data-learner-form="mfa-verify" data-factor="${escapeLearner(data.id)}" data-purpose="enroll"><div class="learner-field" style="margin-top:12px"><label for="mfa-code">6-digit authenticator code</label><input id="mfa-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></div><div class="modal-actions"><button class="learner-button learner-button-soft" type="button" data-action="cancel-mfa-enrollment">Cancel setup</button><button class="learner-button learner-button-primary" type="submit">Verify and enable</button></div></form>`);
+}
+
+async function beginMfaRemoval(factorId) {
+  const mfa = supabaseClient.client.auth.mfa;
+  if (!mfa?.challenge) throw new Error("Two-factor authentication is not supported by the current account service.");
+  const { data, error } = await mfa.challenge({ factorId });
+  if (error) throw error;
+  openLearnerModal("Confirm 2FA removal", `<p class="security-description">Enter the current authenticator code to confirm removal.</p><form data-learner-form="mfa-verify" data-factor="${escapeLearner(factorId)}" data-challenge="${escapeLearner(data.id)}" data-purpose="remove"><div class="learner-field"><label for="mfa-code">6-digit authenticator code</label><input id="mfa-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></div><div class="modal-actions"><button class="learner-button learner-button-soft" type="button" data-close-learner-modal>Cancel</button><button class="learner-button learner-button-danger" type="submit">Verify and turn off</button></div></form>`);
+}
+
+async function downloadPersonalData() {
+  const data = await supabaseClient.getPrivacyExport(LEARNER_ID);
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `skill-up-personal-data-${learnerDay()}.json`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  notify("Your personal data export has been downloaded.");
+}
+
+async function refreshMfaFactors() {
+  const { data, error } = await supabaseClient.client.auth.mfa.listFactors();
+  if (error) throw error;
+  securityCenter.factors = data?.all || data?.totp || [];
+  securityCenter.mfaError = "";
+  renderLearnerView();
+}
+
 async function handleLearnerAction(action, id, element) {
   const course = getCourse(id);
   switch (action) {
+    case "change-password":
+      openPasswordChange();
+      break;
+    case "enable-mfa":
+      try {
+        await beginMfaEnrollment();
+      } catch (error) {
+        notify(`Could not start two-factor setup: ${error.message}`, "error");
+      }
+      break;
+    case "disable-mfa":
+      try {
+        await beginMfaRemoval(id);
+      } catch (error) {
+        notify(`Could not start two-factor removal: ${error.message}`, "error");
+      }
+      break;
+    case "privacy-request":
+      openPrivacyRequest(element.dataset.type);
+      break;
+    case "download-personal-data":
+      try {
+        await downloadPersonalData();
+      } catch (error) {
+        notify(`Could not download your personal data: ${error.message}`, "error");
+      }
+      break;
+    case "logout-all":
+    case "logout-current": {
+      const { error } = await supabaseClient.client.auth.signOut({ scope: action === "logout-all" ? "global" : "local" });
+      if (error) {
+        notify(`Could not end your session: ${error.message}`, "error");
+        break;
+      }
+      window.location.replace("auth.html?mode=login");
+      break;
+    }
+    case "cancel-mfa-enrollment":
+      try {
+        const { error } = await supabaseClient.client.auth.mfa.unenroll({ factorId: securityCenter.pendingFactor?.id });
+        if (error) throw error;
+        securityCenter.pendingFactor = null;
+        await refreshMfaFactors();
+        closeLearnerModal();
+        notify("Two-factor setup was cancelled.");
+      } catch (error) {
+        notify(`Could not cancel two-factor setup: ${error.message}`, "error");
+      }
+      break;
     case "navigate-catalog": closeLearnerModal(); navigateLearner("catalog"); break;
     case "navigate-learning": closeLearnerModal(); navigateLearner("learning"); break;
     case "navigate-certificates": closeLearnerModal(); navigateLearner("certificates"); break;
@@ -632,27 +929,23 @@ async function handleLearnerAction(action, id, element) {
     case "assignment": if (course && ownsCourse(id)) assignmentModal(course); else notify("Enroll in this course to submit its assignment.", "error"); break;
     case "quiz": if (course && ownsCourse(id)) quizModal(course); else notify("Enroll in this course to access quizzes.", "error"); break;
     case "announcements": showAnnouncements(); break;
-    case "activate-referral": {
-      const code = `SKILL-${learnerState.profile.name.split(/\s+/)[0].replace(/[^a-z]/gi, "").toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-      saveLearnerState(() => { learnerState.referral.active = true; learnerState.referral.code = code; }, "Referral demo activated.");
-      break;
-    }
     case "copy-referral": {
-      const url = new URL("student.html", window.location.href);
-      url.searchParams.set("ref", learnerState.referral.code);
-      navigator.clipboard?.writeText(url.href).then(() => notify("Demo referral link copied.")).catch(() => notify(`Demo referral code: ${learnerState.referral.code}`));
+      if (!referralCenter.summary?.code) { notify("Your referral code is not available.", "error"); return; }
+      const url = new URL("auth.html", window.location.href);
+      url.searchParams.set("mode", "register");
+      url.searchParams.set("ref", referralCenter.summary.code);
+      try {
+        await navigator.clipboard.writeText(url.href);
+        notify("Referral link copied.");
+      } catch (error) {
+        notify(`Could not copy the referral link: ${error.message || "Clipboard access is unavailable."}`, "error");
+      }
       break;
     }
-    case "request-withdrawal": {
-      if (!learnerState.referral.active) { notify("Activate the referral demo first.", "error"); return; }
-      openLearnerModal("Request a demo withdrawal", `<div class="learner-notice"><span>ⓘ</span><div>No payout will be made. The request is saved in Supabase for tracking.</div></div><div class="learner-field"><label for="withdrawal-amount">Request amount (demo balance ${learnerMoney(learnerState.referral.commission)})</label><input id="withdrawal-amount" name="amount" type="number" min="1" max="${Math.max(1, learnerState.referral.commission)}" value="${Math.min(learnerState.referral.commission, 5000)}"></div><div class="learner-field"><label for="withdrawal-method">Payout method</label><select id="withdrawal-method"><option>Bank transfer · demo</option><option>Mobile wallet · demo</option></select></div><div class="modal-actions"><button class="learner-button learner-button-soft" data-close-learner-modal>Cancel</button><button class="learner-button learner-button-primary" data-action="submit-withdrawal">Submit demo request</button></div>`);
-      break;
-    }
-    case "submit-withdrawal": {
-      const amount = Number(document.querySelector("#withdrawal-amount").value);
-      if (!Number.isFinite(amount) || amount <= 0 || amount > learnerState.referral.commission) { notify("Enter a valid amount within your demo commission balance.", "error"); return; }
-      saveLearnerState(() => { learnerState.referral.withdrawals.unshift({ id: `WDR-${Date.now()}`, amount, date: learnerDay(), method: document.querySelector("#withdrawal-method").value, status: "Pending" }); }, "Demo withdrawal request recorded. No funds were sent.");
-      closeLearnerModal();
+    case "refresh-referrals": {
+      referralCenter.summary = null;
+      referralCenter.error = "";
+      void ensureReferralCenterLoaded();
       break;
     }
     case "toggle-save-job":
@@ -742,6 +1035,59 @@ document.addEventListener("submit", async (event) => {
   const values = Object.fromEntries(new FormData(form).entries());
   const kind = form.dataset.learnerForm;
   const courseId = form.dataset.id;
+  if (kind === "privacy-request") {
+    try {
+      const request = await supabaseClient.createPrivacyRequest(LEARNER_ID, form.dataset.type, String(values.details || "").trim());
+      securityCenter.requests = [request, ...securityCenter.requests];
+      closeLearnerModal();
+      notify(`${privacyRequestName(request.request_type)} submitted.`);
+      if (activeLearnerView === "profile") renderLearnerView();
+    } catch (error) {
+      notify(`Could not submit your privacy request: ${error.message}`, "error");
+    }
+    return;
+  }
+  if (kind === "password-change") {
+    if (values.password.length < 8 || values.password !== values.confirmation) {
+      notify(values.password !== values.confirmation ? "The new passwords do not match." : "Use at least eight characters for your password.", "error");
+      return;
+    }
+    try {
+      const { error } = await supabaseClient.client.auth.updateUser({ password: values.password });
+      if (error) throw error;
+      closeLearnerModal();
+      notify("Your password was updated.");
+    } catch (error) {
+      notify(`Could not update your password: ${error.message}`, "error");
+    }
+    return;
+  }
+  if (kind === "mfa-verify") {
+    const mfa = supabaseClient.client.auth.mfa;
+    const factorId = form.dataset.factor;
+    const purpose = form.dataset.purpose;
+    try {
+      let challengeId = form.dataset.challenge;
+      if (!challengeId) {
+        const { data, error } = await mfa.challenge({ factorId });
+        if (error) throw error;
+        challengeId = data.id;
+      }
+      const { error: verifyError } = await mfa.verify({ factorId, challengeId, code: String(values.code).trim() });
+      if (verifyError) throw verifyError;
+      if (purpose === "remove") {
+        const { error } = await mfa.unenroll({ factorId });
+        if (error) throw error;
+      }
+      securityCenter.pendingFactor = null;
+      await refreshMfaFactors();
+      closeLearnerModal();
+      notify(purpose === "remove" ? "Two-factor authentication was turned off." : "Two-factor authentication is enabled.");
+    } catch (error) {
+      notify(`Could not verify the authenticator code: ${error.message}`, "error");
+    }
+    return;
+  }
   if (kind === "booking") {
     if (!values.title.trim() || !values.date || !values.time || new Date(`${values.date}T${values.time}`) < new Date()) { notify("Choose a topic and a future date and time for the session request.", "error"); return; }
     saveLearnerState(() => {
@@ -803,12 +1149,42 @@ document.addEventListener("submit", async (event) => {
       learnerState.profile.name = updatedProfile.full_name;
       learnerState.profile.email = updatedProfile.email;
       renderLearnerView();
+    } else {
+      try {
+        securityCenter.preferences = {
+          ...defaultPrivacyPreferences,
+          ...await supabaseClient.savePrivacyPreferences(LEARNER_ID, {
+            ...securityCenter.preferences,
+            product_email: form.querySelector('[name="notifications"]').checked
+          })
+        };
+        renderLearnerView();
+      } catch (error) {
+        notify(`Profile saved, but the learning-notification preference could not be saved: ${error.message}`, "error");
+      }
     }
     return;
   }
 });
 
-learnerContent.addEventListener("change", (event) => {
+learnerContent.addEventListener("change", async (event) => {
+  const preference = event.target.dataset.privacyPreference;
+  if (preference && Object.hasOwn(defaultPrivacyPreferences, preference)) {
+    const previous = securityCenter.preferences[preference];
+    event.target.disabled = true;
+    try {
+      const saved = await supabaseClient.savePrivacyPreferences(LEARNER_ID, { ...securityCenter.preferences, [preference]: event.target.checked });
+      securityCenter.preferences = { ...defaultPrivacyPreferences, ...saved };
+      securityCenter.error = "";
+      notify("Privacy preference saved to your account.");
+      renderLearnerView();
+    } catch (error) {
+      event.target.checked = previous;
+      event.target.disabled = false;
+      notify(`Could not save your privacy preference: ${error.message}`, "error");
+    }
+    return;
+  }
   if (event.target.id !== "avatar-upload") return;
   const file = event.target.files?.[0];
   if (!file) return;

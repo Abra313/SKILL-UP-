@@ -29,7 +29,7 @@
     }
   } catch (error) {
     console.error("Could not load Supabase website content:", error);
-    if (faqList) faqList.innerHTML = '<div class="empty-state" role="status">Website updates could not be loaded from Supabase. Check the project setup and try again.</div>';
+    if (faqList) faqList.innerHTML = '<div class="empty-state" role="status">Website updates could not be loaded. Check your connection and try again.</div>';
     return;
   }
 
@@ -167,14 +167,27 @@
         }));
       }
     }
+  function showLegal(key) {
+    const legalTitles = {
+      privacyPolicy: "Privacy policy",
+      terms: "Terms and conditions",
+      cookiePolicy: "Cookie policy",
+      dataProcessingPolicy: "Data processing policy",
+      dataRetentionPolicy: "Data retention policy",
+      dpoContact: "Data protection contact"
+    };
+    const title = legalTitles[key];
+    if (!title) return;
+    document.querySelector("#legal-dialog-title").textContent = title;
+    document.querySelector("#legal-dialog-content").textContent = homepage[key] || `${title} have not been published yet.`;
+    legalDialog?.showModal();
+  }
   document.querySelectorAll("[data-legal]").forEach((link) => {
     link.addEventListener("click", (event) => {
       event.preventDefault();
-      const key = link.dataset.legal;
-      const title = key === "privacyPolicy" ? "Privacy policy" : "Terms and conditions";
-      document.querySelector("#legal-dialog-title").textContent = title;
-      document.querySelector("#legal-dialog-content").textContent = homepage[key] || `${title} have not been published yet.`;
-      legalDialog?.showModal();
+      showLegal(link.dataset.legal);
     });
   });
+  const requestedLegal = new URLSearchParams(window.location.search).get("legal");
+  if (requestedLegal) showLegal(requestedLegal);
 })();

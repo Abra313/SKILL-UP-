@@ -142,6 +142,17 @@ h1, h2, h3 { font-family: var(--font-display); }
 .public-content-meta { font-weight: 600; }
 .public-testimonial-card blockquote { margin: 0; color: var(--deep); font-family: var(--font-display); font-size: 17px; line-height: 1.7; }
 .public-testimonial-card figcaption { margin-top: auto; color: var(--muted); font-size: 12px; font-weight: 700; }
+.welcome-video-dialog { width: min(760px, calc(100% - 32px)); max-height: min(92vh, 760px); overflow: auto; padding: 20px; border: 1px solid rgba(255,255,255,.15); border-radius: 8px; color: var(--deep); background: var(--paper); box-shadow: 0 24px 80px rgba(0,0,0,.3); }
+.welcome-video-dialog::backdrop { background: rgba(8, 31, 32, .78); backdrop-filter: blur(4px); }
+.welcome-video-heading, .welcome-video-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.welcome-video-heading { margin-bottom: 14px; }
+.welcome-video-heading .eyebrow { margin-bottom: 4px; font-size: 12px; }
+.welcome-video-heading h2 { margin: 0; font-size: 19px; }
+.welcome-video-close { display: grid; width: 35px; height: 35px; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--deep); background: transparent; font-size: 23px; cursor: pointer; }
+.welcome-video { display: block; width: 100%; max-height: min(54vh, 460px); border-radius: 5px; background: #071819; }
+.welcome-video-footer { padding-top: 13px; }
+.welcome-video-footer p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.welcome-video-footer .button { min-height: 42px; white-space: nowrap; }
 .legal-dialog { width: min(620px, calc(100% - 32px)); max-height: min(80vh, 720px); padding: 28px; border: 1px solid var(--line); border-radius: 6px; color: var(--deep); background: var(--paper); }
 .legal-dialog::backdrop { background: rgba(8, 31, 32, .62); }
 .legal-dialog h2 { margin: 0 42px 18px 0; font-family: var(--font-display); }
@@ -502,4 +513,11 @@ h1, h2, h3 { font-family: var(--font-display); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
   .js-enabled .reveal { opacity: 1; transform: none; }
+}
+@media (max-width: 520px) {
+  .welcome-video-dialog { padding: 14px; }
+  .welcome-video-heading h2 { font-size: 16px; }
+  .welcome-video { max-height: 48vh; }
+  .welcome-video-footer { align-items: stretch; flex-direction: column; }
+  .welcome-video-footer .button { width: 100%; }
 }

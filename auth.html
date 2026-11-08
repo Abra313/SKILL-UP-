@@ -44,7 +44,16 @@
               <label for="confirm-password">Confirm password</label>
               <input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" placeholder="Enter your password again">
             </div>
-            <button class="submit-button" id="submit-button" type="submit"><span>Log in</span><span aria-hidden="true">↗</span></button>
+            <button class="submit-button" id="submit-button" type="submit"><span>Log in</span><span class="auth-spinner" id="auth-submit-spinner" aria-hidden="true" hidden></span><span id="auth-submit-arrow" aria-hidden="true">↗</span></button>
+          </form>
+          <form id="mfa-challenge" hidden>
+            <p class="field-help">Open your authenticator app and enter the current 6-digit code to finish signing in.</p>
+            <div class="form-field">
+              <label for="mfa-code">Authenticator code</label>
+              <input id="mfa-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required>
+            </div>
+            <button class="submit-button" type="submit"><span>Verify and continue</span><span aria-hidden="true">↗</span></button>
+            <button class="auth-tab" id="mfa-cancel" type="button">Cancel and sign out</button>
           </form>
           <p class="auth-switch" id="auth-switch">New to SKILL-UP? <button type="button" data-set-mode="register">Create an account</button></p>
         </div>
@@ -63,15 +72,15 @@
           </div>
         </aside>
       </section>
-      <p class="page-note">Your account is securely authenticated by Supabase. Never share your password.</p>
+      <p class="page-note">Your account is securely authenticated. Never share your password.</p>
       <div class="auth-toast" id="auth-message" role="status" aria-live="polite" hidden>
         <span id="auth-message-text"></span>
-        <a id="auth-setup-link" href="SUPABASE_SETUP.md" hidden>Open Supabase setup instructions</a>
+        <a id="auth-setup-link" href="SUPABASE_SETUP.md" hidden>Open account setup instructions</a>
       </div>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="supabase-client.js"></script>
-    <script src="auth.js?v=2"></script>
+    <script src="supabase-client.js?v=2"></script>
+    <script src="auth.js?v=6"></script>
   </body>
 </html>
