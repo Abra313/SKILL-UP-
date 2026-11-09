@@ -3,6 +3,7 @@ const currentUser = await window.skillUpAuth.requireRole("learner");
 if (!currentUser) return;
 const supabaseClient = window.skillUpSupabase;
 const LEARNER_ID = currentUser.id;
+const COURSE_INSTRUCTOR = "Skill up Team";
 const learnerContent = document.querySelector("#learner-content");
 const learnerSidebar = document.querySelector("#learner-sidebar");
 const learnerModal = document.querySelector("#learner-modal-layer");
@@ -94,7 +95,9 @@ function readLearnerState(source, publicWorkspace) {
   const defaults = initialLearnerState();
   source ||= defaults;
   const loaded = Object.fromEntries(Object.keys(defaults).map((key) => [key, source[key] ?? defaults[key]]));
-  const publishedCourses = (publicWorkspace?.courses || []).filter((course) => course.status === "Published");
+  const publishedCourses = (publicWorkspace?.courses || [])
+    .filter((course) => course.status === "Published")
+    .map((course) => ({ ...course, instructor: COURSE_INSTRUCTOR }));
   loaded.courses = publicWorkspace?.catalogInitialized
     ? publishedCourses
     : publishedCourses.length
@@ -102,7 +105,7 @@ function readLearnerState(source, publicWorkspace) {
       : (window.skillUpAICourses || []).map((course) => ({
         ...course,
         price: 5000,
-        instructor: "SKILL-UP Team",
+        instructor: COURSE_INSTRUCTOR,
         status: "Published",
         enrolled: 0,
         completion: 0,
@@ -372,6 +375,32 @@ async function accessCourse(id) {
   }
 }
 
+function getCourseMaterials(course) {
+  return String(course.materials || "").split(/\r?\n/).map((material) => material.trim()).filter(Boolean);
+}
+
+function normalizeCourseMaterial(material) {
+  try {
+    const url = new URL(material, window.location.href);
+    if (!["http:", "https:"].includes(url.protocol)) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function getLessonMaterial(course, lessonIndex) {
+  const materials = getCourseMaterials(course);
+  const material = materials.length === 1 ? materials[0] : materials[lessonIndex];
+  return material ? normalizeCourseMaterial(material) : null;
+}
+
+function getLessonMaterialLabel(url) {
+  if (/\.pdf(?:$|[?#])/i.test(url)) return "Open PDF ↗";
+  if (/\.(?:mp4|webm|mov|m3u8)(?:$|[?#])/i.test(url)) return "Play video ↗";
+  return "Open material ↗";
+}
+
 function renderCourseRoom() {
   const course = getCourse(certificateFocus);
   if (!course) {
@@ -385,9 +414,17 @@ function renderCourseRoom() {
   const rows = lessons.map((lesson, index) => {
     const completed = owned && progress.completedLessons.includes(index);
     const current = progress.lastLesson === index && !completed;
-    return `<div class="lesson-row"><span class="lesson-play">${completed ? "✓" : "▷"}</span><div class="lesson-details"><strong>${escapeLearner(lesson)}</strong><small>Lesson ${index + 1} · ${owned ? current ? "Continue here" : completed ? "Completed" : "Learning material coming soon" : "Syllabus demo"}</small></div>${owned ? `<button class="lesson-complete" type="button" aria-pressed="${completed}" aria-label="${completed ? "Mark lesson incomplete" : "Mark lesson complete"}" data-action="toggle-lesson" data-id="${escapeLearner(course.id)}" data-lesson="${index}">${completed ? "✓" : ""}</button>` : `<span class="lesson-complete" aria-hidden="true">•</span>`}</div>`;
+    const material = owned ? getLessonMaterial(course, index) : null;
+    const lessonStatus = owned
+      ? current ? "Continue here" : completed ? "Completed" : material ? "Learning material available" : "Material not uploaded yet"
+      : "Syllabus preview";
+    const lessonContent = `<span class="lesson-play">${completed ? "✓" : "▷"}</span><span class="lesson-details"><strong>${escapeLearner(lesson)}</strong><small>Lesson ${index + 1} · ${lessonStatus}</small></span>${material ? `<span class="lesson-material-link">${getLessonMaterialLabel(material)}</span>` : ""}`;
+    return `<div class="lesson-row">${material ? `<a class="lesson-access" href="${escapeLearner(material)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeLearner(`Open material for ${lesson}`)}">${lessonContent}</a>` : `<div class="lesson-access is-unavailable">${lessonContent}</div>`}${owned ? `<button class="lesson-complete" type="button" aria-pressed="${completed}" aria-label="${completed ? "Mark lesson incomplete" : "Mark lesson complete"}" data-action="toggle-lesson" data-id="${escapeLearner(course.id)}" data-lesson="${index}">${completed ? "✓" : ""}</button>` : ""}</div>`;
   }).join("");
-  const materialLinks = (course.materials || "").split("\n").filter(Boolean).map((link) => `<a class="learner-button learner-button-soft" href="${escapeLearner(link)}" target="_blank" rel="noopener noreferrer">Open course material ↗</a>`).join(" ");
+  const materialLinks = getCourseMaterials(course).map((link) => {
+    const safeLink = normalizeCourseMaterial(link);
+    return safeLink ? `<a class="learner-button learner-button-soft" href="${escapeLearner(safeLink)}" target="_blank" rel="noopener noreferrer">${getLessonMaterialLabel(safeLink)}</a>` : "";
+  }).join(" ");
   const percentage = progressPercent(course.id);
   return `${pageHeading(course.title, `${escapeLearner(course.instructor)} · Course syllabus and learning resources`, `<button class="learner-button learner-button-soft" data-action="navigate-learning">← My courses</button>`)}
     ${owned ? notice("<strong>You’re enrolled in this course.</strong> Track lesson progress and use the course resources below.") : notice("<strong>Syllabus preview.</strong> Select Access course to add this course to My learning and start tracking your progress.")}
@@ -559,7 +596,10 @@ function renderProfile() {
   const requests = securityCenter.requests.map((request) => `<div class="security-request-row"><div><strong>${escapeLearner(privacyRequestName(request.request_type))}</strong><small>${escapeLearner(request.details || "No additional details")} · ${escapeLearner(new Date(request.created_at).toLocaleString())}</small></div>${badge(request.status, request.status === "Pending" ? "pending" : "")}</div>`).join("");
   const factorSummary = verifiedFactor ? `Authenticator app · ${escapeLearner(verifiedFactor.friendly_name || "TOTP")}` : securityCenter.factors.length ? "No verified authenticator" : "Not enabled";
   const browserName = /Edg\//.test(navigator.userAgent) ? "Microsoft Edge" : /Firefox\//.test(navigator.userAgent) ? "Mozilla Firefox" : /Chrome\//.test(navigator.userAgent) ? "Google Chrome" : /Safari\//.test(navigator.userAgent) ? "Safari" : "Browser";
-  const requestError = securityCenter.error ? `<p class="security-description" role="status">Privacy controls are temporarily unavailable. Please try again later.</p>` : "";
+  const missingPrivacySchema = securityCenter.error && supabaseClient.isPrivacySchemaMissing?.(securityCenter.error);
+  const requestError = securityCenter.error
+    ? `<p class="security-description" role="status">${missingPrivacySchema ? "Privacy settings are not set up for this project yet. Ask an administrator to apply the privacy migration, then reload this page." : "Privacy controls are temporarily unavailable. Please try again later."}</p>`
+    : "";
   const mfaNotice = securityCenter.mfaError ? `<p class="security-description">${escapeLearner(securityCenter.mfaError)}</p>` : "";
   const realtimeNotice = securityCenter.realtimeError ? `<p class="security-description">${escapeLearner(securityCenter.realtimeError)}</p>` : "";
   return `${pageHeading("Profile & settings", "Manage the learner profile associated with your account.")}

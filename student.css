@@ -181,6 +181,12 @@ a { color: inherit; text-decoration: none; }
 .learner-detail-box ul { display: grid; gap: 5px; padding-left: 14px; margin: 0; }
 .lesson-list { display: grid; gap: 7px; }
 .lesson-row { display: flex; align-items: center; gap: 9px; padding: 10px; border: 1px solid #edf0ec; border-radius: 4px; background: white; }
+.lesson-access { display: flex; min-width: 0; flex: 1; align-items: center; gap: 9px; color: inherit; text-decoration: none; }
+.lesson-access[href] { border-radius: 4px; }
+.lesson-access[href]:hover .lesson-details strong { color: var(--learner-teal); }
+.lesson-access:focus-visible { outline: 2px solid var(--learner-teal); outline-offset: 3px; }
+.lesson-access.is-unavailable { cursor: default; }
+.lesson-material-link { flex: 0 0 auto; color: var(--learner-teal); font-size: 12px; font-weight: 700; }
 .lesson-play { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: #e5f2e5; color: var(--learner-teal); }
 .lesson-details { min-width: 0; flex: 1; }
 .lesson-details strong, .lesson-details small { display: block; }

@@ -21,6 +21,8 @@ The script signs in to Supabase CLI, links the project, and applies the migratio
 
 Alternatively, in the Supabase dashboard open **SQL Editor**, paste the contents of [`supabase-schema.sql`](./supabase-schema.sql), and run it. Then run the security/privacy migration from [`supabase/migrations/20261108001000_add_security_privacy_controls.sql`](./supabase/migrations/20261108001000_add_security_privacy_controls.sql) in the SQL Editor as well.
 
+If privacy settings report that a table is missing from the API schema cache, the migration has not been applied to that project. If `supabase db push` is blocked because the remote database has older migration versions missing from this checkout, do not mark those unrelated versions as reverted. Run the privacy migration SQL in the linked project's SQL Editor, then mark only this migration as applied with `npx supabase migration repair --remote --status applied 20261108001000`. The app uses that migration to create both privacy tables, apply row-level security, and enable Realtime.
+
 For live referral tracking, apply [`supabase/migrations/20261107230000_enable_real_referrals.sql`](./supabase/migrations/20261107230000_enable_real_referrals.sql) and [`supabase/migrations/20261107234200_enable_live_referral_updates.sql`](./supabase/migrations/20261107234200_enable_live_referral_updates.sql) after the core schema. The CLI setup script applies pending migrations automatically. Referral links attribute new registrations; referral commissions are added only after an administrator independently verifies a course payment in **Payments & finance**. Online payment collection and automatic payouts require a separately configured payment provider.
 
 ## 2. Configure authentication

@@ -22,6 +22,7 @@ const pageNames = {
   mentorship: "Mentorship",
   security: "Security & Privacy"
 };
+const COURSE_INSTRUCTOR = "Skill up Team";
 const today = new Date();
 const day = (offset) => {
   const date = new Date(today);
@@ -146,6 +147,7 @@ async function readData(source, learnerWorkspaces) {
     loaded.courses.push(...defaults.courses.filter((course) => !savedCourseIds.has(course.id)));
     loaded.catalogInitialized = true;
   }
+  loaded.courses = loaded.courses.map((course) => ({ ...course, instructor: COURSE_INSTRUCTOR }));
   removedSeedRecords = removeSeedRecords(loaded);
   const learnersById = new Map(learnerWorkspaces.map((workspace) => [
     workspace.workspace_key.slice("learner:".length),
@@ -343,6 +345,9 @@ try {
     supabaseClient.loadLearnerWorkspaces()
   ]);
   state = await readData(remoteAdmin || initialState(), learnerWorkspaces);
+  const hasCourseInstructorUpdate = state.courses.some((course) =>
+    remoteAdmin?.courses?.some((saved) => saved.id === course.id && saved.instructor !== COURSE_INSTRUCTOR)
+  );
   const syllabusDefaults = new Map((window.skillUpAICourses || []).map((course) => [course.id, course]));
   const sharedThumbnail = "https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=800&q=80";
   const thumbnailDefaults = new Map([
@@ -375,11 +380,12 @@ try {
   });
   const hasNewCourses = state.courses.some((course) => !remoteAdmin?.courses?.some((saved) => saved.id === course.id));
   const hasCourseCatalogUpdate = !remoteAdmin?.catalogInitialized;
-  if (!remoteAdmin || hasNewCourses || hasCourseDefaultsUpdate || hasCourseCatalogUpdate || removedSeedRecords) {
+  if (!remoteAdmin || hasNewCourses || hasCourseDefaultsUpdate || hasCourseCatalogUpdate || hasCourseInstructorUpdate || removedSeedRecords) {
     await supabaseClient.saveWorkspace("admin", state);
   }
   const remotePublic = await supabaseClient.loadWorkspace("public");
-  if (!remoteAdmin || !remotePublic || !remotePublic.catalogInitialized || hasNewCourses || hasCourseDefaultsUpdate || hasCourseCatalogUpdate || removedSeedRecords) await supabaseClient.saveWorkspace("public", publicWorkspace(state));
+  const hasPublicInstructorUpdate = remotePublic?.courses?.some((course) => course.instructor !== COURSE_INSTRUCTOR);
+  if (!remoteAdmin || !remotePublic || !remotePublic.catalogInitialized || hasNewCourses || hasCourseDefaultsUpdate || hasCourseCatalogUpdate || hasCourseInstructorUpdate || hasPublicInstructorUpdate || removedSeedRecords) await supabaseClient.saveWorkspace("public", publicWorkspace(state));
   removedSeedRecords = false;
 } catch (error) {
   mainContent.innerHTML = `<section class="panel"><div class="panel-body"><h2>Could not load account data</h2><p>${escapeHTML(error.message || "Check your connection and try again.")}</p></div></section>`;
@@ -467,13 +473,17 @@ async function refreshDashboard() {
       supabaseClient.loadLearnerWorkspaces()
     ]);
     const refreshedState = await readData(remoteAdmin || initialState(), learnerWorkspaces);
+    const hasCourseInstructorUpdate = refreshedState.courses.some((course) =>
+      remoteAdmin?.courses?.some((saved) => saved.id === course.id && saved.instructor !== COURSE_INSTRUCTOR)
+    );
     const hasNewCourses = refreshedState.courses.some((course) => !remoteAdmin?.courses?.some((saved) => saved.id === course.id));
     const hasCourseCatalogUpdate = !remoteAdmin?.catalogInitialized;
-    if (!remoteAdmin || hasNewCourses || hasCourseCatalogUpdate || removedSeedRecords) {
+    if (!remoteAdmin || hasNewCourses || hasCourseCatalogUpdate || hasCourseInstructorUpdate || removedSeedRecords) {
       await supabaseClient.saveWorkspace("admin", refreshedState);
     }
     const remotePublic = await supabaseClient.loadWorkspace("public");
-    if (!remotePublic || !remotePublic.catalogInitialized || hasNewCourses || hasCourseCatalogUpdate || removedSeedRecords) {
+    const hasPublicInstructorUpdate = remotePublic?.courses?.some((course) => course.instructor !== COURSE_INSTRUCTOR);
+    if (!remotePublic || !remotePublic.catalogInitialized || hasNewCourses || hasCourseCatalogUpdate || hasCourseInstructorUpdate || hasPublicInstructorUpdate || removedSeedRecords) {
       await supabaseClient.saveWorkspace("public", publicWorkspace(refreshedState));
     }
     removedSeedRecords = false;
@@ -737,7 +747,7 @@ function renderMentorship() {
   const reviewRows = state.reviews.map((review) => `<tr><td>${statusBadge(review.type)}</td><td><strong>${escapeHTML(review.title)}</strong><small class="muted"><br>${escapeHTML(review.course)}</small></td><td>${escapeHTML(review.student)}</td><td>${dateLabel(review.submitted)}</td><td>${statusBadge(review.status)}</td><td><button class="text-button" data-action="review-submission" data-id="${review.id}">${review.status === "Reviewed" || review.status === "Responded" ? "View feedback" : review.type === "Question" ? "Respond" : "Review"}</button></td></tr>`).join("");
   const toolbar = `<div class="toolbar-left"><span class="muted">${state.sessions.filter((session) => session.status === "Scheduled").length} scheduled sessions · ${state.sessions.filter((session) => session.status === "Completed").length} completed</span></div>`;
   return `${heading("Mentorship management", "Schedule mentor sessions, live training and assignment-review appointments.", `<button class="button button-primary" data-action="add-session"><span class="button-icon">＋</span> Schedule session</button>`)}
-    <section class="panel data-panel"><div class="panel-header"><div><h2>Mentorship programme flyer</h2><p>${state.mentorshipProgram.status === "Published" ? "Visible on learner dashboards" : "Currently hidden from learners"}</p></div><button class="button button-soft button-small" data-action="edit-mentorship-program">${state.mentorshipProgram.title ? "Edit flyer & link" : "Add flyer & link"}</button></div><div class="panel-body">${state.mentorshipProgram.title ? `<div class="activity-item">${state.mentorshipProgram.flyer ? `<img src="${escapeHTML(state.mentorshipProgram.flyer)}" alt="" style="width:120px;max-height:80px;object-fit:cover;border-radius:4px">` : ""}<div class="activity-copy"><strong>${escapeHTML(state.mentorshipProgram.title)}</strong><small>${escapeHTML(state.mentorshipProgram.joinLink)}</small></div>${statusBadge(state.mentorshipProgram.status)}</div>` : `<div class="empty-state">Add a programme flyer, details and join link to feature it on learner dashboards.</div>`}</div></section>
+    <section class="panel data-panel"><div class="panel-header"><div><h2>Mentorship programme flyer</h2><p>${state.mentorshipProgram.status === "Published" ? "Visible on learner dashboards" : "Currently hidden from learners"}</p></div><div class="table-actions">${state.mentorshipProgram.flyer ? `<button class="button button-danger button-small" data-action="delete-mentorship-flyer">Delete flyer</button>` : ""}<button class="button button-soft button-small" data-action="edit-mentorship-program">${state.mentorshipProgram.title ? "Edit flyer & link" : "Add flyer & link"}</button></div></div><div class="panel-body">${state.mentorshipProgram.title ? `<div class="activity-item">${state.mentorshipProgram.flyer ? `<img src="${escapeHTML(state.mentorshipProgram.flyer)}" alt="" style="width:120px;max-height:80px;object-fit:cover;border-radius:4px">` : ""}<div class="activity-copy"><strong>${escapeHTML(state.mentorshipProgram.title)}</strong><small>${escapeHTML(state.mentorshipProgram.joinLink)}</small></div>${statusBadge(state.mentorshipProgram.status)}</div>` : `<div class="empty-state">Add a programme flyer, details and join link to feature it on learner dashboards.</div>`}</div></section>
     ${tableShell(toolbar, ["Session", "Mentor", "Student / group", "Date & time", "Session link", "Status", "Actions"], rows, "No mentorship sessions scheduled.")}
     <section class="panel data-panel"><div class="panel-header"><div><h2>Student questions & assignment reviews</h2><p>Respond to learner questions and review practical submissions</p></div><button class="button button-soft button-small" data-action="add-review">＋ Add submission</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Type</th><th>Submission</th><th>Student</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead><tbody>${reviewRows || `<tr><td class="table-empty" colspan="6">No submissions waiting for review.</td></tr>`}</tbody></table></div></section>`;
 }
@@ -782,7 +792,10 @@ function renderAdminSecurity() {
       : "—";
     return `<tr><td><strong>${escapeHTML(type)}</strong><small class="muted"><br>${escapeHTML(request.user?.full_name || request.user?.email || request.user_id)}</small></td><td>${escapeHTML(request.details || "No details provided.")}</td><td>${escapeHTML(new Date(request.created_at).toLocaleString())}</td><td>${statusBadge(request.status)}</td><td>${actions}</td></tr>`;
   }).join("");
-  const requestError = privacyRequestsError ? `<p class="security-status error" role="status">Learner privacy requests could not be loaded. Check that the security and privacy migration is applied and that this account has administrator access, then refresh.</p>` : "";
+  const missingPrivacySchema = privacyRequestsError && supabaseClient.isPrivacySchemaMissing?.({ code: "PGRST205", message: privacyRequestsError });
+  const requestError = privacyRequestsError
+    ? `<p class="security-status error" role="status">${missingPrivacySchema ? "Privacy tables are not set up for this project yet. Apply the security and privacy migration, then refresh." : "Learner privacy requests could not be loaded. Check that this account has administrator access, then refresh."}</p>`
+    : "";
   const realtimeError = privacyRequestsRealtimeError ? `<p class="security-status" role="status">Live privacy updates are unavailable. Use Refresh to check for changes.</p>` : "";
   const preferences = [
     ["product_email", "Account and product emails"],
@@ -813,7 +826,7 @@ function renderAdminSecurity() {
       </section>
       <section class="settings-card"><h2>Privacy &amp; consent</h2><p>Preferences apply to this administrator account and are stored securely.</p>
         ${adminPrivacyPreferencesLoading ? `<p class="security-help">Loading saved preferences…</p>` : preferences}
-        ${adminPrivacyPreferencesError ? `<p class="security-status error" role="status">${escapeHTML(adminPrivacyPreferencesError)}</p>` : ""}
+        ${adminPrivacyPreferencesError ? `<p class="security-status error" role="status">${supabaseClient.isPrivacySchemaMissing?.({ code: "PGRST205", message: adminPrivacyPreferencesError }) ? "Privacy tables are not set up for this project yet. Apply the security and privacy migration, then refresh." : escapeHTML(adminPrivacyPreferencesError)}</p>` : ""}
         <p class="security-help">Public profile visibility is not available in this portal. Notification choices are saved, but delivery needs configured email, SMS or WhatsApp services. Non-essential processing is limited; this portal does not send account data to an AI service.</p>
       </section>
       <section class="settings-card"><h2>Personal data</h2><p>Information associated with the signed-in administrator account.</p>
@@ -1047,7 +1060,7 @@ function closeModal() {
 }
 
 function field(label, name, value = "", options = {}) {
-  const { type = "text", full = false, required = false, placeholder = "", help = "", choices = [], rows = 4, min, max, step, accept } = options;
+  const { type = "text", full = false, required = false, readOnly = false, placeholder = "", help = "", choices = [], rows = 4, min, max, step, accept } = options;
   if (type === "checkbox") {
     return `<div class="form-field${full ? " full" : ""} checkbox-field"><label for="field-${name}"><input id="field-${name}" name="${name}" type="checkbox" value="true"${value ? " checked" : ""}><span>${label}</span></label>${help ? `<span class="help-text">${help}</span>` : ""}</div>`;
   }
@@ -1058,7 +1071,7 @@ function field(label, name, value = "", options = {}) {
   } else if (type === "textarea") {
     input = `<textarea id="field-${name}" name="${name}" rows="${rows}" placeholder="${escapeHTML(placeholder)}"${required ? " required" : ""}>${escapeHTML(value)}</textarea>`;
   } else {
-    input = `<input id="field-${name}" name="${name}" type="${type}" value="${escapeHTML(value)}" placeholder="${escapeHTML(placeholder)}"${required ? " required" : ""}${min !== undefined ? ` min="${min}"` : ""}${max !== undefined ? ` max="${max}"` : ""}${step !== undefined ? ` step="${step}"` : ""}${accept ? ` accept="${escapeHTML(accept)}"` : ""}>`;
+    input = `<input id="field-${name}" name="${name}" type="${type}" value="${escapeHTML(value)}" placeholder="${escapeHTML(placeholder)}"${required ? " required" : ""}${readOnly ? " readonly" : ""}${min !== undefined ? ` min="${min}"` : ""}${max !== undefined ? ` max="${max}"` : ""}${step !== undefined ? ` step="${step}"` : ""}${accept ? ` accept="${escapeHTML(accept)}"` : ""}>`;
   }
   return `<div class="form-field${full ? " full" : ""}">${labelMarkup}${input}${help ? `<span class="help-text">${help}</span>` : ""}</div>`;
 }
@@ -1072,7 +1085,7 @@ function courseForm(course = {}) {
     field("Course title", "title", course.title || "", { required: true }),
     field("Category", "category", course.category || state.categories[0] || "", { required: true, placeholder: "Create or select a category" }),
     field("Price (NGN)", "price", course.price ?? 5000, { type: "number", min: 0, required: true }),
-    field("Instructor", "instructor", course.instructor || "", { required: true }),
+    field("Instructor", "instructor", COURSE_INSTRUCTOR, { required: true, readOnly: true }),
     field("Status", "status", course.status || "Draft", { type: "select", choices: ["Draft", "Published"] }),
     field("Show this course on the landing page", "featured", Boolean(course.featured), { type: "checkbox", full: true, help: "Featured courses appear on the public homepage. All published courses remain in Explore courses." }),
     field("Thumbnail image", "thumbnailFile", "", { type: "file", full: true, help: "Optional image upload, stored as a small data URL in this browser. Maximum 1 MB." }),
@@ -1085,7 +1098,7 @@ function courseForm(course = {}) {
     field("Assignments", "assignments", course.assignments || "", { type: "textarea", full: true, rows: 2, placeholder: "One assignment per line" }),
     field("Quizzes", "quizzes", course.quizzes || "", { type: "textarea", full: true, rows: 2, placeholder: "One quiz per line" }),
     field("Completion requirements", "requirements", course.requirements || "", { type: "textarea", full: true, rows: 2 }),
-    field("Learning materials / video links", "materials", course.materials || "", { type: "textarea", full: true, rows: 3, placeholder: "Add resource URLs, one per line", help: "This prototype stores links only. It does not host video or PDF files." })
+    field("Learning materials / video links", "materials", course.materials || "", { type: "textarea", full: true, rows: 3, placeholder: "Add resource URLs, one per line", help: "Add one video/PDF URL per syllabus item in the same order. A single URL is shared by every syllabus item. Links open in a new tab; files must be hosted at an accessible HTTPS URL." })
   ].join("");
 }
 
@@ -1370,6 +1383,15 @@ async function handleAction(action, id) {
       break;
     case "add-session": formModal("Schedule mentorship session", "session", "", sessionForm(), "Schedule session"); break;
     case "edit-mentorship-program": formModal("Mentorship programme flyer", "mentorship-program", "", mentorshipProgramForm(), "Save programme"); break;
+    case "delete-mentorship-flyer":
+      if (state.mentorshipProgram.flyer && confirmAction("Delete the mentorship programme flyer and hide the programme from learner dashboards?")) {
+        commit(() => {
+          state.mentorshipProgram.flyer = "";
+          state.mentorshipProgram.status = "Draft";
+          addAudit(`Mentorship programme flyer removed: ${state.mentorshipProgram.title}`);
+        }, "Mentorship flyer deleted and programme unpublished.");
+      }
+      break;
     case "add-review": formModal("Add student question or assignment", "review", "", reviewForm(), "Add to review queue"); break;
     case "review-submission": {
       const review = state.reviews.find((item) => item.id === id);
@@ -1605,7 +1627,7 @@ async function handleFormSubmit(form) {
     const save = (uploadedImage = "") => {
       const courseData = {
         title: values.title.trim(), category: values.category, price: Number(values.price),
-        instructor: values.instructor.trim(), status: values.status, featured: values.featured === "true", thumbnail: uploadedImage || values.thumbnail.trim(),
+        instructor: COURSE_INSTRUCTOR, status: values.status, featured: values.featured === "true", thumbnail: uploadedImage || values.thumbnail.trim(),
         banner: values.banner.trim(), description: values.description.trim(), introduction: values.introduction.trim(),
         objectives: values.objectives.trim(), modules: values.modules.trim(),
         materials: values.materials.trim(), assignments: values.assignments.trim(), quizzes: values.quizzes.trim(),

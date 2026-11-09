@@ -91,6 +91,11 @@
     return data;
   }
 
+  function isPrivacySchemaMissing(error) {
+    return error?.code === "PGRST205" &&
+      /public\.(?:user_privacy_preferences|privacy_requests)/i.test(error.message || "");
+  }
+
   async function savePrivacyPreferences(userId, preferences) {
     const updatedAt = new Date().toISOString();
     const { data, error } = await client.from("user_privacy_preferences")
@@ -232,6 +237,7 @@
     loadLearnerWorkspaces,
     loadPrivacyPreferences,
     savePrivacyPreferences,
+    isPrivacySchemaMissing,
     loadPrivacyRequests,
     createPrivacyRequest,
     subscribePrivacyCenter,
