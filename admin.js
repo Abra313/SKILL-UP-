@@ -23,6 +23,10 @@ const pageNames = {
   security: "Security & Privacy"
 };
 const COURSE_INSTRUCTOR = "Skill up Team";
+const COURSE_MATERIAL_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm", "application/pdf"]);
+const COURSE_VIDEO_LIMIT = 512 * 1024 * 1024;
+const COURSE_PDF_LIMIT = 25 * 1024 * 1024;
+const uniqueUploadId = () => window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const today = new Date();
 const day = (offset) => {
   const date = new Date(today);
@@ -35,7 +39,7 @@ const initialState = () => ({
     { id: "c-fullstack", title: "Full Stack Development", category: "Development", price: 5000, instructor: "Tunde Adebayo", status: "Published", enrolled: 182, completion: 64, description: "Build complete websites and web applications with frontend, backend and database skills.", modules: "Web fundamentals\nFrontend foundations\nBackend APIs\nDatabases and deployment", materials: "https://example.com/fullstack-guide.pdf", requirements: "Complete all core modules and submit the portfolio project.", assignments: "Build and deploy a responsive portfolio website.", quizzes: "Web fundamentals quiz\nJavaScript and API quiz", thumbnail: "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-120) },
     { id: "c-frontend", title: "Frontend Development", category: "Development", price: 5000, instructor: "Ada Okafor", status: "Published", enrolled: 146, completion: 71, description: "Master HTML, CSS and JavaScript to create beautiful, responsive websites.", modules: "HTML and accessibility\nCSS and responsive layouts\nJavaScript fundamentals\nModern frontend projects", materials: "", requirements: "Complete all core lessons and submit the final website project.", assignments: "Create a responsive product landing page.", quizzes: "HTML and accessibility quiz\nCSS layout quiz", thumbnail: "https://images.unsplash.com/photo-1547658719-da2b51169166?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-105) },
     { id: "c-ai", title: "AI Automation", category: "Artificial Intelligence", price: 5000, instructor: "Ifeanyi Okoro", status: "Published", enrolled: 129, completion: 53, description: "Use AI tools and automation platforms to build intelligent workflows.", modules: "AI foundations\nWorkflow automation\nConnecting business tools\nBuild an automation project", materials: "", requirements: "Submit one working automation and complete the final quiz.", assignments: "Create an automated lead follow-up workflow.", quizzes: "Workflow automation fundamentals", thumbnail: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-89) },
-    { id: "c-voice", title: "AI Voice Agent", category: "Artificial Intelligence", price: 5000, instructor: "Chika Nwosu", status: "Published", enrolled: 87, completion: 46, description: "Create voice agents that communicate, help customers and automate conversations.", modules: "Voice AI fundamentals\nConversation design\nAgent integrations\nTesting and deployment", materials: "", requirements: "Build, test and document a working voice-agent prototype.", assignments: "Design a helpful customer-support voice agent.", quizzes: "Voice agent safety and conversation design", thumbnail: "https://images.unsplash.com/photo-1590602847861-f357a9332bbc?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-70) },
+    { id: "c-voice", title: "AI Voice Agent", category: "Artificial Intelligence", price: 5000, instructor: "Chika Nwosu", status: "Published", enrolled: 87, completion: 46, description: "Create voice agents that communicate, help customers and automate conversations.", modules: "Module 1 – Introduction and Vapi Setup\nModule 2 – Configuring Your Voice Agent\nModule 3 – Prompt Engineering and Knowledge Base\nModule 4 – Voice Configuration and Automation\nModule 5 – Deployment and Going Live", materials: "", requirements: "Build, test and document a working voice-agent prototype.", assignments: "Design a helpful customer-support voice agent.", quizzes: "Voice agent safety and conversation design", thumbnail: "https://images.unsplash.com/photo-1590602847861-f357a9332bbc?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-70) },
     { id: "c-vibe", title: "Vibe Coding & Google AdSense", category: "Development", price: 5000, instructor: "Tunde Adebayo", status: "Published", enrolled: 94, completion: 39, description: "Build digital products with AI-assisted coding and explore website monetization.", modules: "AI-assisted prototyping\nCreate a web product\nContent and publishing\nMonetization basics", materials: "", requirements: "Publish a simple project and complete the monetization knowledge check.", assignments: "Build and publish a small useful website.", quizzes: "Content quality and AdSense policy quiz", thumbnail: "https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-55) },
     { id: "c-ux", title: "UI/UX Design", category: "Design", price: 5000, instructor: "Ada Okafor", status: "Published", enrolled: 118, completion: 68, description: "Learn wireframing, prototyping and user-friendly digital product design.", modules: "Design thinking\nResearch and personas\nWireframes and prototypes\nUsability and handoff", materials: "", requirements: "Submit a case study and a clickable prototype.", assignments: "Redesign a familiar mobile app flow.", quizzes: "Accessibility and usability quiz", thumbnail: "https://images.unsplash.com/photo-1586717791821-3f44a563fa4c?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-44) },
     { id: "c-graphics", title: "Graphics Design", category: "Design", price: 5000, instructor: "Zainab Musa", status: "Published", enrolled: 103, completion: 62, description: "Develop creative skills in branding, social media graphics and visual communication.", modules: "Design fundamentals\nColor and typography\nBranding projects\nSocial media campaigns", materials: "", requirements: "Submit a mini brand kit with three design assets.", assignments: "Design a social media campaign for a local business.", quizzes: "Color, typography and visual hierarchy", thumbnail: "https://images.unsplash.com/photo-1626785774573-4b799315345d?auto=format&fit=crop&w=800&q=80", banner: "", createdAt: day(-31) },
@@ -338,6 +342,18 @@ function removeSeedRecords(workspace) {
   });
   return removed;
 }
+function normalizeCourseData(courses) {
+  let updated = false;
+  courses.forEach((course) => {
+    const normalized = window.skillUpCourseUtils.normalizeCourse(course);
+    updated ||= normalized.modules !== String(course.modules || "")
+      || JSON.stringify(normalized.moduleMaterials) !== JSON.stringify(course.moduleMaterials || [])
+      || Object.prototype.hasOwnProperty.call(course, "moduleResources");
+    delete course.moduleResources;
+    Object.assign(course, normalized);
+  });
+  return updated;
+}
 let state;
 try {
   const [remoteAdmin, learnerWorkspaces] = await Promise.all([
@@ -349,6 +365,32 @@ try {
     remoteAdmin?.courses?.some((saved) => saved.id === course.id && saved.instructor !== COURSE_INSTRUCTOR)
   );
   const syllabusDefaults = new Map((window.skillUpAICourses || []).map((course) => [course.id, course]));
+  const moduleMigrations = new Map([
+    ["c-voice", {
+      previous: "Voice AI fundamentals\nConversation design\nAgent integrations\nTesting and deployment",
+      current: "Module 1 – Introduction and Vapi Setup\nModule 2 – Configuring Your Voice Agent\nModule 3 – Prompt Engineering and Knowledge Base\nModule 4 – Voice Configuration and Automation\nModule 5 – Deployment and Going Live"
+    }],
+    ["ai-voice-agent-development", {
+      previous: "Voice AI, speech recognition and synthesis\nCall flows, prompts and conversation design\nIntegrating tools, calendars and business data\nPrivacy, consent and human handoff\nBuild and test a voice-agent prototype",
+      current: "Module 1 – Introduction and Vapi Setup\nModule 2 – Configuring Your Voice Agent\nModule 3 – Prompt Engineering and Knowledge Base\nModule 4 – Voice Configuration and Automation\nModule 5 – Deployment and Going Live"
+    }],
+    ["ai-digital-marketing", {
+      previous: "AI marketing foundations and responsible use\nAudience research, personas and segmentation\nCampaign strategy and channel selection\nAI-assisted campaign content and creative\nAnalytics, optimization and capstone campaign",
+      current: "Module 1: Claude AI Fundamentals, Workspace Setup and Marketing Skills\nModule 2: AI Content Creation, Web Scraping and Media Generation\nModule 3: Lead Generation, Customer Research and Marketing Dashboards\nModule 4: AI Marketing Automation and Social Media Management\nModule 5: AI SEO, Search Optimization and Final Marketing System"
+    }],
+    ["ai-social-media-management", {
+      previous: "Social media strategy and platform formats\nAudience research and content pillars\nAI-assisted posts, captions and creative briefs\nScheduling, community management and moderation\nAnalytics, optimization and campaign portfolio",
+      current: "Module 1: Introduction to AI Content Automation\nModule 2: Building Your Niche and Content Strategy\nModule 3: AI-Powered Content Research and Ideation\nModule 4: AI Scriptwriting, Recording and Video Editing\nModule 5: Content Publishing, Analytics and Multi-Platform Automation"
+    }],
+    ["ai-seo-specialist", {
+      previous: "Search engines, intent and SEO foundations\nAI-assisted keyword and competitor research\nOn-page optimization and content briefs\nTechnical SEO, accessibility and site health\nAnalytics, reporting and optimization plan",
+      current: "Module 1: Introduction to SEO in 2026\nModule 2: Keyword Research and Selection\nModule 3: Competitor Analysis and SEO Research\nModule 4: Website Page Creation and Content Optimization\nModule 5: Advanced SEO, AI Search Visibility and Link Building"
+    }],
+    ["ai-accounting-bookkeeping", {
+      previous: "Bookkeeping foundations and AI capabilities\nTransaction records, categorization and reconciliation\nAI-assisted summaries and financial reports\nAccuracy checks, confidentiality and approval controls\nPrepare a verified bookkeeping workflow",
+      current: "Module 1: Introduction to AI Accounting and Bookkeeping\nTransaction records, categorization and reconciliation\nAI-assisted summaries and financial reports\nAccuracy checks, confidentiality and approval controls\nPrepare a verified bookkeeping workflow"
+    }]
+  ]);
   const sharedThumbnail = "https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=800&q=80";
   const thumbnailDefaults = new Map([
     ...syllabusDefaults,
@@ -358,8 +400,13 @@ try {
   state.courses.forEach((course) => {
     const defaults = syllabusDefaults.get(course.id);
     const thumbnailDefault = thumbnailDefaults.get(course.id)?.thumbnail;
-    if (!defaults && !thumbnailDefault) return;
+    const moduleMigration = moduleMigrations.get(course.id);
+    if (!defaults && !thumbnailDefault && !moduleMigration) return;
     let updated = false;
+    if (moduleMigration && course.modules === moduleMigration.previous) {
+      course.modules = moduleMigration.current;
+      updated = true;
+    }
     if (defaults) {
       ["introduction", "objectives", "modules"].forEach((fieldName) => {
         if (!String(course[fieldName] || "").trim() && defaults[fieldName]) {
@@ -378,14 +425,15 @@ try {
     }
     hasCourseDefaultsUpdate ||= updated;
   });
+  const hasCourseDataUpdate = normalizeCourseData(state.courses);
   const hasNewCourses = state.courses.some((course) => !remoteAdmin?.courses?.some((saved) => saved.id === course.id));
   const hasCourseCatalogUpdate = !remoteAdmin?.catalogInitialized;
-  if (!remoteAdmin || hasNewCourses || hasCourseDefaultsUpdate || hasCourseCatalogUpdate || hasCourseInstructorUpdate || removedSeedRecords) {
+  if (!remoteAdmin || hasNewCourses || hasCourseDefaultsUpdate || hasCourseDataUpdate || hasCourseCatalogUpdate || hasCourseInstructorUpdate || removedSeedRecords) {
     await supabaseClient.saveWorkspace("admin", state);
   }
   const remotePublic = await supabaseClient.loadWorkspace("public");
   const hasPublicInstructorUpdate = remotePublic?.courses?.some((course) => course.instructor !== COURSE_INSTRUCTOR);
-  if (!remoteAdmin || !remotePublic || !remotePublic.catalogInitialized || hasNewCourses || hasCourseDefaultsUpdate || hasCourseCatalogUpdate || hasCourseInstructorUpdate || hasPublicInstructorUpdate || removedSeedRecords) await supabaseClient.saveWorkspace("public", publicWorkspace(state));
+  if (!remoteAdmin || !remotePublic || !remotePublic.catalogInitialized || hasNewCourses || hasCourseDefaultsUpdate || hasCourseDataUpdate || hasCourseCatalogUpdate || hasCourseInstructorUpdate || hasPublicInstructorUpdate || removedSeedRecords) await supabaseClient.saveWorkspace("public", publicWorkspace(state));
   removedSeedRecords = false;
 } catch (error) {
   mainContent.innerHTML = `<section class="panel"><div class="panel-body"><h2>Could not load account data</h2><p>${escapeHTML(error.message || "Check your connection and try again.")}</p></div></section>`;
@@ -442,20 +490,21 @@ function publicWorkspace(workspace) {
 function persist(message) {
   const revision = ++persistRevision;
   const snapshot = JSON.parse(JSON.stringify(state));
-  void supabaseClient.saveWorkspace("admin", snapshot)
+  return supabaseClient.saveWorkspace("admin", snapshot)
     .then(() => supabaseClient.saveWorkspace("public", publicWorkspace(snapshot)))
     .then(() => {
-      if (revision !== persistRevision) return;
+      if (revision !== persistRevision) return false;
       persistedState = snapshot;
       if (message) notify(`${message} Synced with your account.`);
+      return true;
     })
     .catch((error) => {
-      if (revision !== persistRevision) return;
+      if (revision !== persistRevision) return false;
       state = persistedState;
       render();
       notify(`Could not save this change to your account: ${error.message}`, "error");
+      return false;
     });
-  return true;
 }
 function commit(mutator, message) {
   mutator();
@@ -473,17 +522,18 @@ async function refreshDashboard() {
       supabaseClient.loadLearnerWorkspaces()
     ]);
     const refreshedState = await readData(remoteAdmin || initialState(), learnerWorkspaces);
+    const hasCourseDataUpdate = normalizeCourseData(refreshedState.courses);
     const hasCourseInstructorUpdate = refreshedState.courses.some((course) =>
       remoteAdmin?.courses?.some((saved) => saved.id === course.id && saved.instructor !== COURSE_INSTRUCTOR)
     );
     const hasNewCourses = refreshedState.courses.some((course) => !remoteAdmin?.courses?.some((saved) => saved.id === course.id));
     const hasCourseCatalogUpdate = !remoteAdmin?.catalogInitialized;
-    if (!remoteAdmin || hasNewCourses || hasCourseCatalogUpdate || hasCourseInstructorUpdate || removedSeedRecords) {
+    if (!remoteAdmin || hasNewCourses || hasCourseDataUpdate || hasCourseCatalogUpdate || hasCourseInstructorUpdate || removedSeedRecords) {
       await supabaseClient.saveWorkspace("admin", refreshedState);
     }
     const remotePublic = await supabaseClient.loadWorkspace("public");
     const hasPublicInstructorUpdate = remotePublic?.courses?.some((course) => course.instructor !== COURSE_INSTRUCTOR);
-    if (!remotePublic || !remotePublic.catalogInitialized || hasNewCourses || hasCourseCatalogUpdate || hasCourseInstructorUpdate || hasPublicInstructorUpdate || removedSeedRecords) {
+    if (!remotePublic || !remotePublic.catalogInitialized || hasNewCourses || hasCourseDataUpdate || hasCourseCatalogUpdate || hasCourseInstructorUpdate || hasPublicInstructorUpdate || removedSeedRecords) {
       await supabaseClient.saveWorkspace("public", publicWorkspace(refreshedState));
     }
     removedSeedRecords = false;
@@ -530,6 +580,111 @@ async function updateLearnerEnrollment(userId, courseId, status, payment) {
   }
   await supabaseClient.saveWorkspace(`learner:${userId}`, workspace);
 }
+
+async function remapLearnerCourseProgress(courseId, indexMap, moduleCount) {
+  const workspaces = await supabaseClient.loadLearnerWorkspaces();
+  const updates = workspaces.flatMap((workspace) => {
+    const progress = workspace.data?.progress?.[courseId];
+    if (!progress) return [];
+    const completedLessons = [...new Set((Array.isArray(progress.completedLessons) ? progress.completedLessons : [])
+      .filter((index) => Number.isInteger(index))
+      .map((index) => indexMap.get(index))
+      .filter((index) => Number.isInteger(index)))].sort((a, b) => a - b);
+    const oldLastLesson = Number.isInteger(progress.lastLesson) ? progress.lastLesson : 0;
+    let lastLesson = indexMap.get(oldLastLesson);
+    if (!Number.isInteger(lastLesson)) {
+      const next = [...indexMap.entries()]
+        .filter(([oldIndex]) => oldIndex > oldLastLesson)
+        .sort(([left], [right]) => left - right)[0];
+      const previous = [...indexMap.entries()]
+        .filter(([oldIndex]) => oldIndex < oldLastLesson)
+        .sort(([left], [right]) => right - left)[0];
+      lastLesson = next?.[1] ?? previous?.[1] ?? 0;
+    }
+    progress.completedLessons = completedLessons;
+    progress.lastLesson = moduleCount ? Math.min(lastLesson, moduleCount - 1) : 0;
+    progress.completed = moduleCount > 0 && completedLessons.length === moduleCount;
+    if (progress.completed) {
+      progress.certificateId ||= `SKILLUP-${new Date().getFullYear()}-${courseId.replace("c-", "").toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+    } else {
+      delete progress.certificateId;
+    }
+    return [{ workspace, data: workspace.data }];
+  });
+  const results = await Promise.allSettled(updates.map(({ workspace, data }) =>
+    supabaseClient.saveWorkspace(workspace.workspace_key, data)
+  ));
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length) {
+    throw new Error(`Could not update progress for ${failures.length} learner workspace${failures.length === 1 ? "" : "s"}.`);
+  }
+}
+
+async function removeUnreferencedCourseMedia(courseId, paths, videoIds = []) {
+  if (!paths.length && !videoIds.length) return;
+  const [adminWorkspace, publicWorkspaceData] = await Promise.all([
+    supabaseClient.loadWorkspace("admin"),
+    supabaseClient.loadWorkspace("public")
+  ]);
+  const referencedMaterials = [...(adminWorkspace?.courses || []), ...(publicWorkspaceData?.courses || [])]
+    .filter((course) => course.id === courseId)
+    .flatMap((course) => (Array.isArray(course.moduleMaterials) ? course.moduleMaterials : []))
+    .filter(Boolean);
+  const referencedPaths = new Set(referencedMaterials.map((material) => material.path).filter(Boolean));
+  const referencedVideoIds = new Set(referencedMaterials.map((material) => material.videoId).filter(Boolean));
+  const unreferencedPaths = paths.filter((path) => !referencedPaths.has(path));
+  const unreferencedVideoIds = videoIds.filter((videoId) => !referencedVideoIds.has(videoId));
+  await Promise.all([
+    supabaseClient.removeCourseMaterials(unreferencedPaths),
+    supabaseClient.removeBunnyVideos(unreferencedVideoIds)
+  ]);
+  if (unreferencedPaths.length !== paths.length || unreferencedVideoIds.length !== videoIds.length) {
+    notify("Some uploaded files were kept because a saved course workspace still references them. Refresh the course and try again.", "error");
+  }
+}
+
+async function uploadBunnyVideo(file, onProgress) {
+  const tusClient = window.tus;
+  if (!tusClient?.Upload) throw new Error("The resumable Bunny uploader could not be loaded. Refresh the page and try again.");
+  const credentials = await supabaseClient.createBunnyUpload(file.name, file.type, file.size);
+  if (!credentials?.videoId || !credentials?.libraryId || !credentials?.signature || !credentials?.expirationTime) {
+    throw new Error("Bunny Stream returned incomplete upload credentials.");
+  }
+  try {
+    await new Promise((resolve, reject) => {
+      const upload = new tusClient.Upload(file, {
+        endpoint: "https://video.bunnycdn.com/tusupload",
+        chunkSize: 8 * 1024 * 1024,
+        retryDelays: [0, 3000, 5000, 10000, 20000, 60000],
+        headers: {
+          AuthorizationSignature: credentials.signature,
+          AuthorizationExpire: String(credentials.expirationTime),
+          VideoId: credentials.videoId,
+          LibraryId: credentials.libraryId
+        },
+        metadata: { filetype: file.type, title: file.name },
+        onShouldRetry: (error) => {
+          const status = error.originalResponse?.getStatus();
+          return !(status >= 400 && status < 500 && status !== 409 && status !== 423);
+        },
+        onError: reject,
+        onProgress: (uploaded, total) => onProgress(Math.round((uploaded / total) * 100)),
+        onSuccess: resolve
+      });
+      upload.start();
+    });
+  } catch (uploadError) {
+    try {
+      await supabaseClient.removeBunnyVideos([credentials.videoId]);
+    } catch (cleanupError) {
+      const message = uploadError instanceof Error ? uploadError.message : String(uploadError);
+      throw new Error(`${message}; failed to clean up the incomplete Bunny video: ${cleanupError.message}`);
+    }
+    throw uploadError;
+  }
+  return { videoId: credentials.videoId };
+}
+
 function notify(message, type = "success") {
   const toast = document.createElement("div");
   toast.className = `toast${type === "error" ? " error" : ""}`;
@@ -1080,7 +1235,31 @@ function formModal(title, kind, id, fields, submitText = "Save changes") {
   openModal(title, `<form data-form="${kind}" data-id="${escapeHTML(id || "")}"><div class="form-grid">${fields}</div><div class="form-actions"><button type="button" class="button button-soft" data-close-modal>Cancel</button><button type="submit" class="button button-primary">${submitText}</button></div></form>`);
 }
 
+function courseModuleEditorRow(index, title = "", material = null, originalIndex = index) {
+  const fileName = material?.fileName || "";
+  const typeLabel = material?.mimeType === "application/pdf" ? "PDF" : "Video";
+  return `<article class="course-module-editor-row" data-course-module-row data-module-index="${index}" data-original-index="${originalIndex ?? ""}">
+    <header><span>Module ${index + 1}</span><button type="button" class="text-button danger" data-course-module-action="remove">Remove</button></header>
+    <label>Module title<input type="text" data-module-title value="${escapeHTML(title)}" placeholder="Enter a module title"></label>
+    <label>Video or PDF<input type="file" data-module-file accept="video/mp4,video/quicktime,video/webm,application/pdf,.mp4,.mov,.webm,.pdf"></label>
+    ${fileName ? `<div class="course-module-current-file"><span>${typeLabel} attached: ${escapeHTML(fileName)}</span><label><input type="checkbox" data-remove-material> Remove current file</label></div>` : `<small>Optional · MP4, MOV, WebM or PDF</small>`}
+    <small data-module-upload-status aria-live="polite"></small>
+  </article>`;
+}
+
+function renumberCourseModules(editor) {
+  editor.querySelectorAll("[data-course-module-row]").forEach((row, index) => {
+    row.querySelector("header span").textContent = `Module ${index + 1}`;
+  });
+}
+
 function courseForm(course = {}) {
+  const normalized = window.skillUpCourseUtils.normalizeCourse(course);
+  const modules = window.skillUpCourseUtils.normalizeModules(normalized.modules);
+  const materials = normalized.moduleMaterials || [];
+  const rows = (modules.length ? modules : [""])
+    .map((module, index) => courseModuleEditorRow(index, module, materials[index]))
+    .join("");
   return [
     field("Course title", "title", course.title || "", { required: true }),
     field("Category", "category", course.category || state.categories[0] || "", { required: true, placeholder: "Create or select a category" }),
@@ -1094,11 +1273,14 @@ function courseForm(course = {}) {
     field("Course description", "description", course.description || "", { type: "textarea", full: true, required: true, rows: 3 }),
     field("Introduction", "introduction", course.introduction || "", { type: "textarea", full: true, rows: 3 }),
     field("Learning objectives", "objectives", course.objectives || "", { type: "textarea", full: true, rows: 4, placeholder: "One objective per line" }),
-    field("Modules and lessons", "modules", course.modules || "", { type: "textarea", full: true, rows: 4, placeholder: "One module or lesson per line" }),
+    `<section class="course-module-editor form-field full" data-course-module-editor data-next-index="${Math.max(1, modules.length)}">
+      <div class="course-module-editor-heading"><div><strong>Course modules</strong><small>Add as many modules as this course needs. Videos upload resumably to Bunny Stream; PDFs use private Supabase Storage.</small></div><button type="button" class="button button-soft button-small" data-course-module-action="add">Add module</button></div>
+      <div class="course-module-editor-list" data-course-module-list>${rows}</div>
+    </section>`,
     field("Assignments", "assignments", course.assignments || "", { type: "textarea", full: true, rows: 2, placeholder: "One assignment per line" }),
     field("Quizzes", "quizzes", course.quizzes || "", { type: "textarea", full: true, rows: 2, placeholder: "One quiz per line" }),
     field("Completion requirements", "requirements", course.requirements || "", { type: "textarea", full: true, rows: 2 }),
-    field("Learning materials / video links", "materials", course.materials || "", { type: "textarea", full: true, rows: 3, placeholder: "Add resource URLs, one per line", help: "Add one video/PDF URL per syllabus item in the same order. A single URL is shared by every syllabus item. Links open in a new tab; files must be hosted at an accessible HTTPS URL." })
+    field("Additional course links", "materials", course.materials || "", { type: "textarea", full: true, rows: 3, placeholder: "Optional public links, one per line" })
   ].join("");
 }
 
@@ -1115,7 +1297,13 @@ function studentDetails(student) {
 
 function courseDetails(course) {
   const objectives = (course.objectives || "").split("\n").filter(Boolean).map((item) => `<div class="insight-row"><span>${escapeHTML(item)}</span><strong>Objective</strong></div>`).join("");
-  const lessons = (course.modules || "").split("\n").filter(Boolean).map((item) => `<div class="insight-row"><span>${escapeHTML(item)}</span><strong>Lesson</strong></div>`).join("");
+  const modules = window.skillUpCourseUtils.normalizeModules(course.modules);
+  const materials = window.skillUpCourseUtils.normalizeCourse(course).moduleMaterials || [];
+  const lessons = modules.map((item, index) => {
+    const material = materials[index];
+    const file = material ? `<small>${material.mimeType === "application/pdf" ? "PDF" : "Video"} · ${escapeHTML(material.fileName)}</small>` : "<small>No file attached</small>";
+    return `<div class="course-detail-module"><strong>Module ${index + 1}: ${escapeHTML(item)}</strong>${file}</div>`;
+  }).join("");
   openModal("Course overview", `<div class="detail-grid"><div class="detail-cell"><span>Category</span><strong>${escapeHTML(course.category)}</strong></div><div class="detail-cell"><span>Price</span><strong>${money(course.price)}</strong></div><div class="detail-cell"><span>Instructor</span><strong>${escapeHTML(course.instructor)}</strong></div><div class="detail-cell"><span>Publishing status</span><strong>${escapeHTML(course.status)}</strong></div><div class="detail-cell"><span>Enrolled students</span><strong>${course.enrolled}</strong></div><div class="detail-cell"><span>Average progress</span><strong>${course.completion}%</strong></div></div><div class="detail-block"><h3>Introduction</h3><p>${escapeHTML(course.introduction || course.description)}</p></div><div class="detail-block"><h3>Description</h3><p>${escapeHTML(course.description)}</p></div><div class="detail-block"><h3>Learning objectives</h3>${objectives || `<p>No learning objectives added.</p>`}</div><div class="detail-block"><h3>Modules & lessons</h3>${lessons || `<p>No modules added.</p>`}</div><div class="detail-block"><h3>Assignments</h3><p>${escapeHTML(course.assignments || "No assignments added.")}</p></div><div class="detail-block"><h3>Quizzes</h3><p>${escapeHTML(course.quizzes || "No quizzes added.")}</p></div><div class="detail-block"><h3>Completion requirements</h3><p>${escapeHTML(course.requirements || "No completion requirements set.")}</p></div><div class="detail-block"><h3>Materials and links</h3><p>${escapeHTML(course.materials || "No resource links added.")}</p></div>`);
 }
 
@@ -1619,17 +1807,46 @@ async function handleFormSubmit(form) {
 
   if (kind === "course") {
     const current = existing(state.courses);
-    const file = form.querySelector('[name="thumbnailFile"]').files[0];
-    if (file && (!file.type.startsWith("image/") || file.size > 1024 * 1024)) {
+    const thumbnailFile = form.querySelector('[name="thumbnailFile"]').files[0];
+    if (thumbnailFile && (!thumbnailFile.type.startsWith("image/") || thumbnailFile.size > 1024 * 1024)) {
       notify("Choose an image file under 1 MB to fit local browser storage.", "error");
       return;
     }
-    const save = (uploadedImage = "") => {
+    const moduleEntries = [];
+    for (const row of form.querySelectorAll("[data-course-module-row]")) {
+      const title = row.querySelector("[data-module-title]").value.trim();
+      const file = row.querySelector("[data-module-file]").files[0] || null;
+      const originalIndex = Number(row.dataset.moduleIndex);
+      const sourceIndex = row.dataset.originalIndex === "" ? null : Number(row.dataset.originalIndex);
+      const oldMaterial = current?.moduleMaterials?.[originalIndex] || null;
+      const removeExisting = Boolean(row.querySelector("[data-remove-material]")?.checked);
+      if (file) {
+        const maximumSize = file.type === "application/pdf" ? COURSE_PDF_LIMIT : COURSE_VIDEO_LIMIT;
+        if (!COURSE_MATERIAL_TYPES.has(file.type) || file.size > maximumSize) {
+          notify(file.type === "application/pdf"
+            ? "Choose a PDF under 25 MB."
+            : "Choose an MP4, MOV or WebM video under 512 MB.", "error");
+          return;
+        }
+        if (!title) {
+          notify("Add a module title before attaching a file.", "error");
+          return;
+        }
+      }
+      if (title) moduleEntries.push({ title, file, oldMaterial, removeExisting, sourceIndex, row });
+    }
+
+    const save = async (uploadedImage = "") => {
+      const courseId = current?.id || `CRS-${Date.now()}`;
+      if (!/^[a-zA-Z0-9_-]+$/.test(courseId)) {
+        notify("This course has an invalid ID for lesson uploads.", "error");
+        return;
+      }
       const courseData = {
         title: values.title.trim(), category: values.category, price: Number(values.price),
         instructor: COURSE_INSTRUCTOR, status: values.status, featured: values.featured === "true", thumbnail: uploadedImage || values.thumbnail.trim(),
         banner: values.banner.trim(), description: values.description.trim(), introduction: values.introduction.trim(),
-        objectives: values.objectives.trim(), modules: values.modules.trim(),
+        objectives: values.objectives.trim(), modules: moduleEntries.map((module) => module.title).join("\n"),
         materials: values.materials.trim(), assignments: values.assignments.trim(), quizzes: values.quizzes.trim(),
         requirements: values.requirements.trim()
       };
@@ -1637,20 +1854,116 @@ async function handleFormSubmit(form) {
         notify("Complete the required course fields with a valid price.", "error");
         return;
       }
-      const saved = commit(() => {
+      const oldModuleCount = window.skillUpCourseUtils.normalizeModules(current?.modules).length;
+      const moduleLayoutChanged = Boolean(current && (
+        moduleEntries.length !== oldModuleCount ||
+        moduleEntries.some((module, index) => module.sourceIndex !== index)
+      ));
+      const moduleIndexMap = new Map(moduleEntries
+        .map((module, index) => [module.sourceIndex, index])
+        .filter(([sourceIndex]) => Number.isInteger(sourceIndex) && sourceIndex >= 0 && sourceIndex < oldModuleCount));
+      const submitButton = form.querySelector('button[type="submit"]');
+      submitButton.disabled = true;
+      submitButton.textContent = "Uploading…";
+      const uploadedPaths = [];
+      const uploadedVideoIds = [];
+      try {
+        const moduleMaterials = [];
+        for (const module of moduleEntries) {
+          if (module.file) {
+            const uploadStatus = module.row.querySelector("[data-module-upload-status]");
+            if (module.file.type === "application/pdf") {
+              const safeFileName = module.file.name.split(/[\\/]/).pop()
+                .replace(/[^a-zA-Z0-9._-]/g, "-")
+                .slice(-120) || "lesson-material";
+              const path = `${courseId}/${uniqueUploadId()}-${safeFileName}`;
+              uploadedPaths.push(path);
+              uploadStatus.textContent = "Uploading PDF to Supabase…";
+              const storedPath = await supabaseClient.uploadCourseMaterial(path, module.file);
+              moduleMaterials.push({
+                provider: "supabase",
+                path: storedPath,
+                fileName: module.file.name,
+                mimeType: module.file.type,
+                size: module.file.size
+              });
+              uploadStatus.textContent = "PDF uploaded.";
+            } else {
+              uploadStatus.textContent = "Preparing Bunny Stream upload…";
+              const uploadedVideo = await uploadBunnyVideo(module.file, (percentage) => {
+                if (uploadStatus.isConnected) uploadStatus.textContent = `Uploading to Bunny Stream… ${percentage}%`;
+              });
+              uploadedVideoIds.push(uploadedVideo.videoId);
+              moduleMaterials.push({
+                provider: "bunny",
+                videoId: uploadedVideo.videoId,
+                fileName: module.file.name,
+                mimeType: module.file.type,
+                size: module.file.size
+              });
+              uploadStatus.textContent = "Video uploaded to Bunny Stream.";
+            }
+          } else {
+            moduleMaterials.push(module.removeExisting ? null : module.oldMaterial);
+          }
+        }
+        courseData.moduleMaterials = moduleMaterials;
+        const oldMaterials = current?.moduleMaterials || [];
+        const oldPaths = oldMaterials
+          .map((material) => material?.path)
+          .filter((path) => path && !moduleMaterials.some((material) => material?.path === path));
+        const oldVideoIds = oldMaterials
+          .map((material) => material?.videoId)
+          .filter((videoId) => videoId && !moduleMaterials.some((material) => material?.videoId === videoId));
         if (current) Object.assign(current, courseData);
-        else state.courses.unshift({ ...courseData, id: `CRS-${Date.now()}`, enrolled: 0, completion: 0, createdAt: day(0) });
-          if (!state.categories.includes(courseData.category)) state.categories.push(courseData.category);
-          addAudit(`${current ? "Course updated" : "Course created"}: ${courseData.title}`);
-      }, current ? "Course changes saved." : "Course created.");
-      if (saved) closeModal();
+        else state.courses.unshift({ ...courseData, id: courseId, enrolled: 0, completion: 0, createdAt: day(0) });
+        if (!state.categories.includes(courseData.category)) state.categories.push(courseData.category);
+        addAudit(`${current ? "Course updated" : "Course created"}: ${courseData.title}`);
+        render();
+        const saved = await persist(current ? "Course changes saved." : "Course created.");
+        if (!saved) {
+          try {
+            await removeUnreferencedCourseMedia(courseId, uploadedPaths, uploadedVideoIds);
+          } catch (cleanupError) {
+            notify(`Course sync failed and the new uploads could not be safely cleaned up: ${cleanupError.message}`, "error");
+          }
+          return;
+        }
+        if (moduleLayoutChanged) {
+          try {
+            await remapLearnerCourseProgress(courseId, moduleIndexMap, moduleEntries.length);
+          } catch (progressError) {
+            notify(`Course saved, but learner progress could not be aligned: ${progressError.message}`, "error");
+          }
+        }
+        closeModal();
+        if (oldPaths.length || oldVideoIds.length) {
+          try {
+            await removeUnreferencedCourseMedia(courseId, oldPaths, oldVideoIds);
+          } catch (cleanupError) {
+            notify(`The course was saved, but a replaced lesson file could not be deleted: ${cleanupError.message}`, "error");
+          }
+        }
+      } catch (error) {
+        try {
+          await removeUnreferencedCourseMedia(courseId, uploadedPaths, uploadedVideoIds);
+        } catch (cleanupError) {
+          notify(`Upload failed and an incomplete upload could not be removed: ${cleanupError.message}`, "error");
+        }
+        notify(`Could not upload lesson material: ${error.message}`, "error");
+      } finally {
+        if (submitButton.isConnected) {
+          submitButton.disabled = false;
+          submitButton.textContent = current ? "Save changes" : "Create course";
+        }
+      }
     };
-    if (file) {
+    if (thumbnailFile) {
       const reader = new FileReader();
-      reader.addEventListener("load", () => save(String(reader.result)));
+      reader.addEventListener("load", () => { void save(String(reader.result)); });
       reader.addEventListener("error", () => notify("Could not read this image file.", "error"));
-      reader.readAsDataURL(file);
-    } else save();
+      reader.readAsDataURL(thumbnailFile);
+    } else await save();
     return;
   }
   if (kind === "mentorship-program") {
@@ -1883,6 +2196,21 @@ mainContent.addEventListener("change", (event) => {
 });
 
 modalLayer.addEventListener("click", (event) => {
+  const moduleAction = event.target.closest("[data-course-module-action]");
+  if (moduleAction) {
+    const editor = moduleAction.closest("[data-course-module-editor]");
+    const list = editor?.querySelector("[data-course-module-list]");
+    if (!editor || !list) return;
+    if (moduleAction.dataset.courseModuleAction === "add") {
+      const index = Number(editor.dataset.nextIndex) || 0;
+      editor.dataset.nextIndex = String(index + 1);
+      list.insertAdjacentHTML("beforeend", courseModuleEditorRow(index, "", null, null));
+    } else {
+      moduleAction.closest("[data-course-module-row]")?.remove();
+    }
+    renumberCourseModules(editor);
+    return;
+  }
   if (event.target.closest("[data-close-modal]")) closeModal();
 });
 

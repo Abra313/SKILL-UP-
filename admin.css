@@ -233,6 +233,23 @@ a { color: inherit; text-decoration: none; }
 .checkbox-field input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; padding: 0; accent-color: var(--admin-teal); }
 .form-field textarea { min-height: 80px; resize: vertical; line-height: 1.55; }
 .form-field .help-text { color: #909b95; font-size: 12px; line-height: 1.5; }
+.course-module-editor { padding: 12px; border: 1px solid #e6ece7; border-radius: 5px; background: #fbfcf9; }
+.course-module-editor-heading, .course-module-editor-row > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.course-module-editor-heading strong, .course-module-editor-heading small { display: block; }
+.course-module-editor-heading strong { color: #42584f; font-size: 13px; }
+.course-module-editor-heading small, .course-module-editor-row > small { color: #87948e; font-size: 11px; line-height: 1.5; }
+.course-module-editor-list { display: grid; gap: 9px; margin-top: 12px; }
+.course-module-editor-row { display: grid; gap: 8px; padding: 10px; border: 1px solid #e8ede8; border-radius: 4px; background: white; }
+.course-module-editor-row > header span { color: var(--admin-teal); font-size: 12px; font-weight: 700; }
+.course-module-editor-row > label { display: grid; gap: 5px; color: #60716a; font-size: 11px; font-weight: 700; }
+.course-module-editor-row input[type="text"], .course-module-editor-row input[type="file"] { width: 100%; padding: 7px; border: 1px solid #e4eae5; border-radius: 4px; background: white; color: #314842; font-size: 12px; }
+.course-module-current-file { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: #53665e; font-size: 11px; }
+.course-module-current-file label { display: inline-flex; align-items: center; gap: 5px; color: #9a5855; font-weight: 600; }
+.course-module-current-file input { min-height: 0; accent-color: #9a5855; }
+.course-detail-module { display: grid; gap: 4px; padding: 8px 0; border-bottom: 1px solid #eff2ef; }
+.course-detail-module:last-child { border-bottom: 0; }
+.course-detail-module strong { color: #43584f; font-size: 12px; }
+.course-detail-module small { color: #87948e; font-size: 11px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 16px; margin-top: 15px; border-top: 1px solid var(--admin-line); }
 .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
 .detail-cell { padding: 11px; border: 1px solid #edf0ec; border-radius: 4px; background: #fcfdfa; }

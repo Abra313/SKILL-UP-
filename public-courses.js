@@ -27,7 +27,7 @@
       : "";
     const number = String(index + 1).padStart(2, "0");
     const objectives = lines(course.objectives);
-    const modules = lines(course.modules);
+    const modules = window.skillUpCourseUtils.normalizeModules(course.modules);
     const courseOutline = `<details class="course-outline"><summary>Course outline</summary><div class="course-outline-content"><h4>Introduction</h4><p>${escapeHTML(course.introduction || course.description || "Introduction coming soon.")}</p><h4>Learning objectives</h4>${objectives.length ? `<ul>${objectives.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul>` : "<p>Learning objectives coming soon.</p>"}<h4>Modules</h4>${modules.length ? `<ul>${modules.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul>` : "<p>Course modules coming soon.</p>"}</div></details>`;
     return `<article class="course-card"><a class="course-image ${imageStyles[index % imageStyles.length]}" href="auth.html?mode=register" aria-label="Explore ${escapeHTML(course.title)}">${image}<span class="course-number">${number}</span><span class="course-art-tag">${escapeHTML(course.category || "COURSE").toUpperCase()} / ${number}</span></a><div class="course-content"><div class="course-topline"><span>${escapeHTML(course.category || "SKILL-UP COURSE").toUpperCase()}</span></div><h3>${escapeHTML(course.title)}</h3><p>${escapeHTML(course.description || "Explore the course syllabus and learning outcomes.")}</p>${courseOutline}<a class="course-link" href="auth.html?mode=register">Explore this course <span>↗</span></a></div></article>`;
   }).join("");

@@ -20,6 +20,76 @@
     return;
   }
   const saveQueues = new Map();
+  const courseMaterialBucket = "course-videos";
+
+  async function uploadCourseMaterial(path, file) {
+    const { data, error } = await client.storage.from(courseMaterialBucket).upload(path, file, {
+      cacheControl: "3600",
+      contentType: file.type,
+      upsert: false
+    });
+    if (error) throw error;
+    if (!data?.path) throw new Error("Storage did not return the uploaded file path.");
+    return data.path;
+  }
+
+  async function createCourseMaterialSignedUrl(path) {
+    const { data, error } = await client.storage.from(courseMaterialBucket).createSignedUrl(path, 3600);
+    if (error) throw error;
+    if (!data?.signedUrl) throw new Error("Storage did not return a signed lesson URL.");
+    return data.signedUrl;
+  }
+
+  async function removeCourseMaterials(paths) {
+    const uniquePaths = [...new Set(paths.filter(Boolean))];
+    if (!uniquePaths.length) return;
+    const { error } = await client.storage.from(courseMaterialBucket).remove(uniquePaths);
+    if (error) throw error;
+  }
+
+  async function invokeBunnyCourseMedia(action, payload = {}) {
+    const { data, error } = await client.functions.invoke("bunny-course-media", {
+      body: { action, ...payload }
+    });
+    if (error) {
+      let message = error.message;
+      if (error.context?.clone) {
+        try {
+          const response = await error.context.clone().json();
+          if (response?.error) message = response.error;
+        } catch {
+          // Keep the original Functions error when its response is not JSON.
+        }
+      }
+      throw new Error(message);
+    }
+    if (!data || typeof data !== "object") {
+      throw new Error("Bunny Stream returned an invalid response.");
+    }
+    if (data.error) throw new Error(String(data.error));
+    return data;
+  }
+
+  async function createBunnyUpload(fileName, mimeType, size) {
+    return invokeBunnyCourseMedia("create-upload", { fileName, mimeType, size });
+  }
+
+  async function createBunnyPlaybackUrl(courseId, videoId) {
+    const data = await invokeBunnyCourseMedia("sign-playback", { courseId, videoId });
+    if (typeof data.url !== "string" || !data.url) {
+      throw new Error("Bunny Stream did not return a playback URL.");
+    }
+    return data.url;
+  }
+
+  async function removeBunnyVideos(videoIds) {
+    const uniqueIds = [...new Set(videoIds.filter(Boolean))];
+    for (let index = 0; index < uniqueIds.length; index += 100) {
+      await invokeBunnyCourseMedia("delete-videos", {
+        videoIds: uniqueIds.slice(index, index + 100)
+      });
+    }
+  }
 
   async function getProfile(userId) {
     const { data, error } = await client.from("profiles")
@@ -234,6 +304,12 @@
     updateProfile,
     loadWorkspace,
     saveWorkspace,
+    uploadCourseMaterial,
+    createCourseMaterialSignedUrl,
+    removeCourseMaterials,
+    createBunnyUpload,
+    createBunnyPlaybackUrl,
+    removeBunnyVideos,
     loadLearnerWorkspaces,
     loadPrivacyPreferences,
     savePrivacyPreferences,

@@ -7,7 +7,7 @@ window.skillUpAICourses = [
     description: "Use AI for marketing strategies, campaigns, audience targeting and business growth.",
     introduction: "Learn to combine AI tools with practical marketing strategy. You will research audiences, plan campaigns, create content and use performance data to improve business growth.",
     objectives: "Define audience segments and customer needs\nBuild an AI-assisted marketing strategy\nCreate and evaluate a multi-channel campaign\nUse performance metrics to improve results",
-    modules: "AI marketing foundations and responsible use\nAudience research, personas and segmentation\nCampaign strategy and channel selection\nAI-assisted campaign content and creative\nAnalytics, optimization and capstone campaign"
+    modules: "Module 1: Claude AI Fundamentals, Workspace Setup and Marketing Skills\nModule 2: AI Content Creation, Web Scraping and Media Generation\nModule 3: Lead Generation, Customer Research and Marketing Dashboards\nModule 4: AI Marketing Automation and Social Media Management\nModule 5: AI SEO, Search Optimization and Final Marketing System"
   },
   {
     id: "ai-customer-service",
@@ -36,7 +36,7 @@ window.skillUpAICourses = [
     description: "Create AI phone agents that answer calls, book appointments and handle customer enquiries.",
     introduction: "Design voice-based assistants that understand caller needs, respond naturally and complete useful tasks while respecting consent and privacy.",
     objectives: "Explain the components of a voice agent\nDesign clear and inclusive spoken conversations\nConnect voice workflows to approved tools or business data\nTest agent behavior, safety and handoff scenarios",
-    modules: "Voice AI, speech recognition and synthesis\nCall flows, prompts and conversation design\nIntegrating tools, calendars and business data\nPrivacy, consent and human handoff\nBuild and test a voice-agent prototype"
+    modules: "Module 1 – Introduction and Vapi Setup\nModule 2 – Configuring Your Voice Agent\nModule 3 – Prompt Engineering and Knowledge Base\nModule 4 – Voice Configuration and Automation\nModule 5 – Deployment and Going Live"
   },
   {
     id: "ai-social-media-management",
@@ -45,7 +45,7 @@ window.skillUpAICourses = [
     description: "Manage Instagram, Facebook, TikTok and other platforms using AI-powered tools.",
     introduction: "Plan and manage a consistent social media presence with AI-assisted research, content creation, scheduling and performance review.",
     objectives: "Set platform-specific goals and audience profiles\nCreate a practical content calendar\nAdapt content for multiple social platforms\nMeasure engagement and refine a social strategy",
-    modules: "Social media strategy and platform formats\nAudience research and content pillars\nAI-assisted posts, captions and creative briefs\nScheduling, community management and moderation\nAnalytics, optimization and campaign portfolio"
+    modules: "Module 1: Introduction to AI Content Automation\nModule 2: Building Your Niche and Content Strategy\nModule 3: AI-Powered Content Research and Ideation\nModule 4: AI Scriptwriting, Recording and Video Editing\nModule 5: Content Publishing, Analytics and Multi-Platform Automation"
   },
   {
     id: "ai-graphic-design",
@@ -81,7 +81,7 @@ window.skillUpAICourses = [
     description: "Use AI for keyword research, website optimization, content ranking and search visibility.",
     introduction: "Learn practical search engine optimization with AI-assisted research and analysis, focusing on helpful content, sound technical foundations and measurable results.",
     objectives: "Research search intent and relevant keywords\nAudit on-page and technical SEO basics\nPlan useful, search-focused content\nTrack organic performance and recommend improvements",
-    modules: "Search engines, intent and SEO foundations\nAI-assisted keyword and competitor research\nOn-page optimization and content briefs\nTechnical SEO, accessibility and site health\nAnalytics, reporting and optimization plan"
+    modules: "Module 1: Introduction to SEO in 2026\nModule 2: Keyword Research and Selection\nModule 3: Competitor Analysis and SEO Research\nModule 4: Website Page Creation and Content Optimization\nModule 5: Advanced SEO, AI Search Visibility and Link Building"
   },
   {
     id: "ai-email-marketing",
@@ -218,7 +218,7 @@ window.skillUpAICourses = [
     description: "Use AI tools to organise transactions, prepare financial reports and manage business records.",
     introduction: "Explore how AI can assist routine bookkeeping and financial reporting, while emphasizing verification, confidentiality and professional review.",
     objectives: "Organize transaction records and supporting documents\nUse AI tools to assist with categorization and summaries\nReview reports for accuracy and inconsistencies\nApply privacy and human approval to financial workflows",
-    modules: "Bookkeeping foundations and AI capabilities\nTransaction records, categorization and reconciliation\nAI-assisted summaries and financial reports\nAccuracy checks, confidentiality and approval controls\nPrepare a verified bookkeeping workflow"
+    modules: "Module 1: Introduction to AI Accounting and Bookkeeping\nTransaction records, categorization and reconciliation\nAI-assisted summaries and financial reports\nAccuracy checks, confidentiality and approval controls\nPrepare a verified bookkeeping workflow"
   },
   {
     id: "ai-no-code-app-development",

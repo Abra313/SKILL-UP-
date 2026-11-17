@@ -97,13 +97,13 @@ function readLearnerState(source, publicWorkspace) {
   const loaded = Object.fromEntries(Object.keys(defaults).map((key) => [key, source[key] ?? defaults[key]]));
   const publishedCourses = (publicWorkspace?.courses || [])
     .filter((course) => course.status === "Published")
-    .map((course) => ({ ...course, instructor: COURSE_INSTRUCTOR }));
+    .map((course) => ({ ...window.skillUpCourseUtils.normalizeCourse(course), instructor: COURSE_INSTRUCTOR }));
   loaded.courses = publicWorkspace?.catalogInitialized
     ? publishedCourses
     : publishedCourses.length
       ? publishedCourses
       : (window.skillUpAICourses || []).map((course) => ({
-        ...course,
+        ...window.skillUpCourseUtils.normalizeCourse(course),
         price: 5000,
         instructor: COURSE_INSTRUCTOR,
         status: "Published",
@@ -376,7 +376,9 @@ async function accessCourse(id) {
 }
 
 function getCourseMaterials(course) {
-  return String(course.materials || "").split(/\r?\n/).map((material) => material.trim()).filter(Boolean);
+  return [...new Set(String(course.materials || "").split(/\r?\n/)
+    .map((material) => material.trim())
+    .filter((material) => material && !/^bunny-stream:|^course-videos\//i.test(material)))];
 }
 
 function normalizeCourseMaterial(material) {
@@ -389,15 +391,8 @@ function normalizeCourseMaterial(material) {
   }
 }
 
-function getLessonMaterial(course, lessonIndex) {
-  const materials = getCourseMaterials(course);
-  const material = materials.length === 1 ? materials[0] : materials[lessonIndex];
-  return material ? normalizeCourseMaterial(material) : null;
-}
-
 function getLessonMaterialLabel(url) {
   if (/\.pdf(?:$|[?#])/i.test(url)) return "Open PDF ↗";
-  if (/\.(?:mp4|webm|mov|m3u8)(?:$|[?#])/i.test(url)) return "Play video ↗";
   return "Open material ↗";
 }
 
@@ -414,22 +409,65 @@ function renderCourseRoom() {
   const rows = lessons.map((lesson, index) => {
     const completed = owned && progress.completedLessons.includes(index);
     const current = progress.lastLesson === index && !completed;
-    const material = owned ? getLessonMaterial(course, index) : null;
     const lessonStatus = owned
-      ? current ? "Continue here" : completed ? "Completed" : material ? "Learning material available" : "Material not uploaded yet"
+      ? current ? "Continue here" : completed ? "Completed" : "Not started"
       : "Syllabus preview";
-    const lessonContent = `<span class="lesson-play">${completed ? "✓" : "▷"}</span><span class="lesson-details"><strong>${escapeLearner(lesson)}</strong><small>Lesson ${index + 1} · ${lessonStatus}</small></span>${material ? `<span class="lesson-material-link">${getLessonMaterialLabel(material)}</span>` : ""}`;
-    return `<div class="lesson-row">${material ? `<a class="lesson-access" href="${escapeLearner(material)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeLearner(`Open material for ${lesson}`)}">${lessonContent}</a>` : `<div class="lesson-access is-unavailable">${lessonContent}</div>`}${owned ? `<button class="lesson-complete" type="button" aria-pressed="${completed}" aria-label="${completed ? "Mark lesson incomplete" : "Mark lesson complete"}" data-action="toggle-lesson" data-id="${escapeLearner(course.id)}" data-lesson="${index}">${completed ? "✓" : ""}</button>` : ""}</div>`;
+    const material = course.moduleMaterials?.[index];
+    const materialPreview = owned && material ? `<details class="lesson-material-preview" data-course-material-preview data-course-id="${escapeLearner(course.id)}" data-material-provider="${escapeLearner(material.provider || "supabase")}" data-material-path="${escapeLearner(material.path || "")}" data-material-video-id="${escapeLearner(material.videoId || "")}" data-material-type="${escapeLearner(material.mimeType)}"><summary>Preview ${material.mimeType === "application/pdf" ? "PDF" : "video"} · ${escapeLearner(material.fileName)}</summary><div class="lesson-material-player" data-material-preview>Open to load this lesson material.</div></details>` : "";
+    const lessonContent = `<span class="lesson-number">${completed ? "✓" : index + 1}</span><span class="lesson-details"><strong>${escapeLearner(lesson)}</strong><small>Module ${index + 1} · ${lessonStatus}</small></span>${owned ? `<button class="lesson-complete" type="button" aria-pressed="${completed}" aria-label="${completed ? "Mark lesson incomplete" : "Mark lesson complete"}" data-action="toggle-lesson" data-id="${escapeLearner(course.id)}" data-lesson="${index}">${completed ? "✓" : ""}</button>` : ""}`;
+    return `<article class="lesson-row"><div class="lesson-row-main">${lessonContent}</div>${materialPreview}</article>`;
   }).join("");
   const materialLinks = getCourseMaterials(course).map((link) => {
     const safeLink = normalizeCourseMaterial(link);
-    return safeLink ? `<a class="learner-button learner-button-soft" href="${escapeLearner(safeLink)}" target="_blank" rel="noopener noreferrer">${getLessonMaterialLabel(safeLink)}</a>` : "";
+    if (!safeLink) return "";
+    return `<a class="learner-button learner-button-soft" href="${escapeLearner(safeLink)}" target="_blank" rel="noopener noreferrer">${getLessonMaterialLabel(safeLink)}</a>`;
   }).join(" ");
   const percentage = progressPercent(course.id);
   return `${pageHeading(course.title, `${escapeLearner(course.instructor)} · Course syllabus and learning resources`, `<button class="learner-button learner-button-soft" data-action="navigate-learning">← My courses</button>`)}
     ${owned ? notice("<strong>You’re enrolled in this course.</strong> Track lesson progress and use the course resources below.") : notice("<strong>Syllabus preview.</strong> Select Access course to add this course to My learning and start tracking your progress.")}
     <div class="detail-sections course-learning-overview"><div class="learner-detail-box"><h3>Introduction</h3><p>${escapeLearner(course.introduction || course.description || "Introduction coming soon.")}</p></div><div class="learner-detail-box"><h3>Learning objectives</h3><ul>${objectives.map((item) => `<li>${escapeLearner(item)}</li>`).join("") || "<li>Learning objectives coming soon.</li>"}</ul></div></div>
-    <div class="learning-layout"><section class="learner-panel"><header class="learner-panel-header"><div><h2>Course syllabus</h2><p>${lessons.length} lessons${owned ? " · mark a lesson complete to track your progress" : " · demo only"}</p></div>${owned ? `<strong>${percentage}%</strong>` : ""}</header><div class="learner-panel-body">${owned ? `<div class="learner-progress-header"><span>Course completion</span><strong>${percentage}%</strong></div><div class="progress-track"><span style="width:${percentage}%"></span></div>` : ""}<div class="lesson-list" style="margin-top:13px">${rows || empty("Course curriculum is being prepared.")}</div><div class="learner-detail-box" style="margin-top:12px"><h3>Learning materials</h3><p>${owned ? materialLinks || "No downloadable materials attached to this course yet." : "Course materials are available to enrolled learners."}</p></div><div class="learner-detail-box" style="margin-top:10px"><h3>Completion requirement</h3><p>${escapeLearner(course.requirements || "Complete all lessons and submit the final project.")}</p></div></div></section><div>${owned ? panel("Your next steps", "Practice what you learn", `<div class="detail-block"><h3>Assignment</h3><p>${escapeLearner(course.assignments || "No assignment published yet.")}</p><div style="margin-top:8px">${button("Submit assignment", "assignment", course.id, "soft")}</div></div><div class="detail-block"><h3>Knowledge check</h3><p>${escapeLearner((course.quizzes || "Course fundamentals").split("\n")[0])}</p><div style="margin-top:8px">${button(learnerState.quizzes[course.id] === undefined ? "Take practice quiz" : `Best score: ${learnerState.quizzes[course.id]}%`, "quiz", course.id, "soft")}</div></div>${progress.completed ? `<div class="detail-block"><h3>Certificate earned</h3><p>Your course completion is recorded. Open certificates to view and share it.</p><div style="margin-top:8px">${button("View certificate", "navigate-certificates", "", "lime")}</div></div>` : ""}`) : panel("Course access", "Your syllabus demo", `<p class="muted">This course outline is available to all learners. Enrollment unlocks progress tracking, lessons, assignments and quizzes.</p>`)}</div></div>`;
+    <div class="learning-layout"><section class="learner-panel"><header class="learner-panel-header"><div><h2>Course syllabus</h2><p>${lessons.length} lessons${owned ? " · mark a lesson complete to track your progress" : " · demo only"}</p></div>${owned ? `<strong>${percentage}%</strong>` : ""}</header><div class="learner-panel-body">${owned ? `<div class="learner-progress-header"><span>Course completion</span><strong>${percentage}%</strong></div><div class="progress-track"><span style="width:${percentage}%"></span></div>` : ""}<div class="lesson-list" style="margin-top:13px">${rows || empty("Course curriculum is being prepared.")}</div><div class="learner-detail-box" style="margin-top:12px"><h3>Learning materials</h3><p>${owned ? materialLinks || "No additional learning materials are available yet." : "Course materials are available to enrolled learners."}</p></div><div class="learner-detail-box" style="margin-top:10px"><h3>Completion requirement</h3><p>${escapeLearner(course.requirements || "Complete all lessons and submit the final project.")}</p></div></div></section><div>${owned ? panel("Your next steps", "Practice what you learn", `<div class="detail-block"><h3>Assignment</h3><p>${escapeLearner(course.assignments || "No assignment published yet.")}</p><div style="margin-top:8px">${button("Submit assignment", "assignment", course.id, "soft")}</div></div><div class="detail-block"><h3>Knowledge check</h3><p>${escapeLearner((course.quizzes || "Course fundamentals").split("\n")[0])}</p><div style="margin-top:8px">${button(learnerState.quizzes[course.id] === undefined ? "Take practice quiz" : `Best score: ${learnerState.quizzes[course.id]}%`, "quiz", course.id, "soft")}</div></div>${progress.completed ? `<div class="detail-block"><h3>Certificate earned</h3><p>Your course completion is recorded. Open certificates to view and share it.</p><div style="margin-top:8px">${button("View certificate", "navigate-certificates", "", "lime")}</div></div>` : ""}`) : panel("Course access", "Your syllabus demo", `<p class="muted">This course outline is available to all learners. Enrollment unlocks progress tracking, lessons, assignments and quizzes.</p>`)}</div></div>`;
+}
+
+async function loadLessonMaterialPreview(details) {
+  if (details.dataset.loaded || details.dataset.loading) return;
+  const courseId = details.dataset.courseId;
+  const provider = details.dataset.materialProvider;
+  const path = details.dataset.materialPath;
+  const videoId = details.dataset.materialVideoId;
+  const course = getCourse(courseId);
+  const material = course?.moduleMaterials?.find((item) => provider === "bunny"
+    ? item?.provider === "bunny" && item.videoId === videoId
+    : item?.path === path);
+  const preview = details.querySelector("[data-material-preview]");
+  if (!preview) return;
+  if (!course || !ownsCourse(courseId) || !material ||
+      (provider === "bunny" ? !videoId : !path.startsWith(`${courseId}/`))) {
+    preview.textContent = "This lesson material is unavailable.";
+    return;
+  }
+  details.dataset.loading = "true";
+  preview.textContent = "Loading preview…";
+  try {
+    const url = provider === "bunny"
+      ? await supabaseClient.createBunnyPlaybackUrl(courseId, videoId)
+      : await supabaseClient.createCourseMaterialSignedUrl(path);
+    if (!details.isConnected || !details.open) return;
+    if (provider === "bunny") {
+      preview.innerHTML = `<iframe src="${escapeLearner(url)}" title="${escapeLearner(material.fileName)}" loading="lazy" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
+    } else if (material.mimeType === "application/pdf") {
+      preview.innerHTML = `<iframe src="${escapeLearner(url)}" title="${escapeLearner(material.fileName)}" loading="lazy"></iframe><a href="${escapeLearner(url)}" target="_blank" rel="noopener noreferrer">Open PDF in a new tab ↗</a>`;
+    } else if (["video/mp4", "video/quicktime", "video/webm"].includes(material.mimeType)) {
+      preview.innerHTML = `<video controls playsinline preload="metadata" src="${escapeLearner(url)}"><a href="${escapeLearner(url)}">Open video</a></video>`;
+    } else {
+      throw new Error("This file type cannot be previewed.");
+    }
+    details.dataset.loaded = "true";
+  } catch (error) {
+    preview.textContent = `Preview unavailable: ${error.message}`;
+  } finally {
+    delete details.dataset.loading;
+  }
 }
 
 function updateCourseProgress(id, lessonIndex, markCompleted) {
@@ -619,7 +657,6 @@ function renderProfile() {
       <section class="learner-panel security-center-card"><div class="learner-panel-body"><div class="security-card-heading"><span class="security-card-icon violet">◉</span><div><h2>Privacy &amp; consent</h2><p>Choices are saved to your authenticated account.</p></div></div>
         ${requestError}${realtimeNotice}${securityCenter.loading ? `<p class="security-description">Loading your saved privacy choices…</p>` : preferences}
         <p class="security-description">Profile visibility controls are not available because public learner profiles are not implemented. Saved messaging and sharing choices only take effect when the corresponding provider or integration is configured.</p>
-        <div class="security-section-divider"><strong>AI data processing</strong></div><p class="security-description">This learner portal does not send your account profile or learning activity to an AI service.</p>
       </div></section>
       <section class="learner-panel security-center-card"><div class="learner-panel-body"><div class="security-card-heading"><span class="security-card-icon coral">▤</span><div><h2>Personal data</h2><p>Review and download information associated with this account.</p></div></div>
         <div class="security-data-summary"><div><span>Account</span><strong>${escapeLearner(profile.email)}</strong></div><div><span>Learning records</span><strong>${learnerState.enrollments.length} enrollments · ${Object.keys(learnerState.progress).length} progress records</strong></div></div>
@@ -745,6 +782,7 @@ function renderLearnerView() {
     return;
   }
   learnerContent.innerHTML = renderer();
+
 }
 
 function navigateLearner(view) {
@@ -1053,6 +1091,10 @@ learnerContent.addEventListener("click", (event) => {
   const actionElement = event.target.closest("[data-action]");
   if (actionElement) handleLearnerAction(actionElement.dataset.action, actionElement.dataset.id, actionElement);
 });
+learnerContent.addEventListener("toggle", (event) => {
+  const details = event.target.closest("[data-course-material-preview]");
+  if (details?.open) void loadLessonMaterialPreview(details);
+}, true);
 learnerContent.addEventListener("input", (event) => {
   if (event.target.matches("[data-course-search]")) {
     courseSearch = event.target.value;

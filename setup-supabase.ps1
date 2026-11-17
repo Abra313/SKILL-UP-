@@ -15,7 +15,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Applying the database migration..."
-& npx --yes supabase db push
+& npx --yes supabase db push --remote=$projectRef
 if ($LASTEXITCODE -ne 0) {
   throw "Supabase database migration failed."
 }

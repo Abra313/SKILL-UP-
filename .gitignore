@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+.private-course-videos/
 supabase/.temp/
 node_modules/
 dist/

@@ -62,8 +62,40 @@ Copy `.env.example` to `.env` and set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_K
 powershell -ExecutionPolicy Bypass -File .\generate-supabase-config.ps1
 ```
 
-Static hosting does not read `.env` files. The generator writes `supabase-config.js`, which the browser loads; deploy that generated file, but never deploy `.env`. Only use a publishable key here. Never place a service-role or secret key in this project.
+Static hosting does not read `.env` files. The generator reads `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` and writes `supabase-config.js`, which the browser loads. Deploy that generated file, but never deploy `.env`. Only use a publishable key in browser configuration. Never place a service-role or secret key in this project.
 
 Existing accounts and application data are read from Supabase. Browser-local application data is not used.
 
 If registration reports **“Database error saving new user”**, apply all pending migrations with `powershell -ExecutionPolicy Bypass -File .\setup-supabase.ps1`. If registration still fails, inspect **Supabase Dashboard → Logs → Auth** for the database trigger error.
+
+## 5. Course modules and lesson materials
+
+Administrators can add or remove any number of course modules. Each module can have one MP4, MOV, WebM or PDF. Videos (up to 512 MB) upload directly to Bunny Stream using resumable TUS uploads; PDF files (up to 25 MB) use the private `course-videos` Supabase Storage bucket. Learners see the uploaded file on that module in their course view; previews load only when opened. Bunny embed URLs are signed by the Edge Function after it verifies course access.
+
+Apply the lesson-media migration to the linked Supabase project:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup-supabase.ps1
+```
+
+The migration recreates or updates the private bucket, limits accepted file types and sizes, restores the administrator upload/delete policy, and permits enrolled learners to read their course files. Historical migrations, including the retirement migration, remain unchanged so existing Supabase migration history stays valid.
+
+The setup script applies pending migrations to the configured remote project. It may prompt for your Supabase access token or database password; enter credentials only in the terminal, never in the website or chat. If the CLI reports migration-history mismatches, stop and inspect the remote migration list before repairing migration history.
+
+### Configure Bunny Stream video uploads and playback
+
+In the Supabase Dashboard for the same project, add these values under **Project Settings → Edge Functions → Secrets**:
+
+- `BUNNY_STREAM_LIBRARY_ID`: the numeric ID of the Bunny Stream video library.
+- `BUNNY_STREAM_API_KEY`: that library's Stream API key (used only by the Edge Function).
+- `BUNNY_STREAM_TOKEN_AUTH_KEY`: the separate token-authentication key from the library's **Security** settings.
+
+Enable **Embed view token authentication** in the Bunny library's Security settings. The upload API key and token-auth key are different credentials. Do not put either key in the website, `.env`, or `supabase-config.js`. A Bunny API key was shared in the conversation while configuring the project; rotate it in Bunny before adding the replacement as a Supabase secret.
+
+After linking the project and signing in to Supabase CLI, deploy the function from the repository root:
+
+```powershell
+npx supabase functions deploy bunny-course-media
+```
+
+The function only issues upload credentials to administrators, checks learner enrollment before signing playback URLs, and removes replaced videos. The browser uploads video bytes directly to Bunny with TUS; Bunny API credentials never reach the browser. Keep the Supabase Storage policies for enrolled learners and administrators in place for PDFs.
