@@ -157,7 +157,7 @@
       if (!data.session?.user) throw new Error("The verified sign-in session could not be loaded.");
       await routeSession(data.session.user);
     } catch (error) {
-      showMessage(`Could not verify your authenticator code: ${error.message}`, true);
+      showMessage(`Could not verify your authenticator code: ${window.skillUpSupabase.formatAuthenticatorError(error)}`, true);
       submit.disabled = false;
       mfaCode.focus();
     }

@@ -22,6 +22,14 @@
   const saveQueues = new Map();
   const courseMaterialBucket = "course-videos";
 
+  function formatAuthenticatorError(error) {
+    const message = error?.message || String(error || "Authenticator verification failed.");
+    if (/invalid totp|invalid code/i.test(message)) {
+      return "The code was rejected. Check your device's automatic date and time, make sure you selected the SKILL-UP entry in your authenticator app, and enter a fresh 6-digit code before it expires.";
+    }
+    return message;
+  }
+
   async function uploadCourseMaterial(path, file) {
     const { data, error } = await client.storage.from(courseMaterialBucket).upload(path, file, {
       cacheControl: "3600",
@@ -300,6 +308,7 @@
 
   window.skillUpSupabase = {
     client,
+    formatAuthenticatorError,
     getProfile,
     updateProfile,
     loadWorkspace,

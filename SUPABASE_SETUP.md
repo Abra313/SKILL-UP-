@@ -78,7 +78,7 @@ Apply the lesson-media migration to the linked Supabase project:
 powershell -ExecutionPolicy Bypass -File .\setup-supabase.ps1
 ```
 
-The migration recreates or updates the private bucket, limits accepted file types and sizes, restores the administrator upload/delete policy, and permits enrolled learners to read their course files. Historical migrations, including the retirement migration, remain unchanged so existing Supabase migration history stays valid.
+The migration recreates or updates the private bucket, limits accepted file types and sizes, restores the administrator upload/delete policy, and permits enrolled learners to read their course files. The pending course-media retirement migration only removes its obsolete Storage policy; it no longer deletes course lesson references before this migration restores media access.
 
 The setup script applies pending migrations to the configured remote project. It may prompt for your Supabase access token or database password; enter credentials only in the terminal, never in the website or chat. If the CLI reports migration-history mismatches, stop and inspect the remote migration list before repairing migration history.
 
@@ -99,3 +99,10 @@ npx supabase functions deploy bunny-course-media
 ```
 
 The function only issues upload credentials to administrators, checks learner enrollment before signing playback URLs, and removes replaced videos. The browser uploads video bytes directly to Bunny with TUS; Bunny API credentials never reach the browser. Keep the Supabase Storage policies for enrolled learners and administrators in place for PDFs.
+
+Troubleshooting:
+
+- **PDF preview says “Object not found”:** apply the lesson-media migration so the private bucket and enrolled-learner read policy exist, then re-upload the PDF if it was uploaded to a different project or before the bucket was configured. Confirm the learner has an active enrollment or successful purchase for that course.
+- **Bunny player shows 403:** confirm `BUNNY_STREAM_TOKEN_AUTH_KEY` is the distinct token-authentication key from the library's **Security** page, not the Stream API key. Verify embed view token authentication is enabled and add the deployed website domain to the library's allowed embedding domains. A correctly signed token cannot override Bunny embedding restrictions.
+- **Authenticator code is rejected:** use the current 6-digit code for this account's SKILL-UP entry; enable automatic date/time on the phone and try a fresh code.
+- **Video uploads feel slow:** uploads now run up to three module files at once. A single video's transfer time still depends on file size and network upload bandwidth; Bunny encoding begins after transfer and is not awaited by course save.

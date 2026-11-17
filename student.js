@@ -1166,7 +1166,7 @@ document.addEventListener("submit", async (event) => {
       closeLearnerModal();
       notify(purpose === "remove" ? "Two-factor authentication was turned off." : "Two-factor authentication is enabled.");
     } catch (error) {
-      notify(`Could not verify the authenticator code: ${error.message}`, "error");
+      notify(`Could not verify the authenticator code: ${supabaseClient.formatAuthenticatorError(error)}`, "error");
     }
     return;
   }

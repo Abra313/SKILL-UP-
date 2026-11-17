@@ -26,6 +26,7 @@ const COURSE_INSTRUCTOR = "Skill up Team";
 const COURSE_MATERIAL_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm", "application/pdf"]);
 const COURSE_VIDEO_LIMIT = 512 * 1024 * 1024;
 const COURSE_PDF_LIMIT = 25 * 1024 * 1024;
+const COURSE_MATERIAL_UPLOAD_CONCURRENCY = 3;
 const uniqueUploadId = () => window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const today = new Date();
 const day = (offset) => {
@@ -1215,7 +1216,7 @@ function closeModal() {
 }
 
 function field(label, name, value = "", options = {}) {
-  const { type = "text", full = false, required = false, readOnly = false, placeholder = "", help = "", choices = [], rows = 4, min, max, step, accept } = options;
+  const { type = "text", full = false, required = false, readOnly = false, placeholder = "", help = "", choices = [], rows = 4, min, max, step, accept, pattern, maxLength, inputMode, autocomplete } = options;
   if (type === "checkbox") {
     return `<div class="form-field${full ? " full" : ""} checkbox-field"><label for="field-${name}"><input id="field-${name}" name="${name}" type="checkbox" value="true"${value ? " checked" : ""}><span>${label}</span></label>${help ? `<span class="help-text">${help}</span>` : ""}</div>`;
   }
@@ -1226,7 +1227,7 @@ function field(label, name, value = "", options = {}) {
   } else if (type === "textarea") {
     input = `<textarea id="field-${name}" name="${name}" rows="${rows}" placeholder="${escapeHTML(placeholder)}"${required ? " required" : ""}>${escapeHTML(value)}</textarea>`;
   } else {
-    input = `<input id="field-${name}" name="${name}" type="${type}" value="${escapeHTML(value)}" placeholder="${escapeHTML(placeholder)}"${required ? " required" : ""}${readOnly ? " readonly" : ""}${min !== undefined ? ` min="${min}"` : ""}${max !== undefined ? ` max="${max}"` : ""}${step !== undefined ? ` step="${step}"` : ""}${accept ? ` accept="${escapeHTML(accept)}"` : ""}>`;
+    input = `<input id="field-${name}" name="${name}" type="${type}" value="${escapeHTML(value)}" placeholder="${escapeHTML(placeholder)}"${required ? " required" : ""}${readOnly ? " readonly" : ""}${min !== undefined ? ` min="${min}"` : ""}${max !== undefined ? ` max="${max}"` : ""}${step !== undefined ? ` step="${step}"` : ""}${accept ? ` accept="${escapeHTML(accept)}"` : ""}${pattern ? ` pattern="${escapeHTML(pattern)}"` : ""}${maxLength !== undefined ? ` maxlength="${maxLength}"` : ""}${inputMode ? ` inputmode="${escapeHTML(inputMode)}"` : ""}${autocomplete ? ` autocomplete="${escapeHTML(autocomplete)}"` : ""}>`;
   }
   return `<div class="form-field${full ? " full" : ""}">${labelMarkup}${input}${help ? `<span class="help-text">${help}</span>` : ""}</div>`;
 }
@@ -1351,7 +1352,7 @@ async function handleAction(action, id) {
         if (error) throw error;
         adminPendingMfaFactor = { id: data.id };
         const qr = /^data:image\/svg\+xml(?:;|,)/i.test(String(data.totp?.qr_code || "")) ? `<img class="mfa-qr-code" src="${escapeHTML(data.totp.qr_code)}" alt="Authenticator setup QR code">` : "";
-        openModal("Set up administrator two-factor authentication", `<p class="security-help">Scan with an authenticator app, then verify the current 6-digit code.</p>${qr}<div class="detail-block"><strong>Manual setup key</strong><p><code>${escapeHTML(data.totp?.secret || "A setup key was not returned.")}</code></p></div><form data-form="admin-mfa-verify" data-factor="${escapeHTML(data.id)}" data-purpose="enroll">${field("Authenticator code", "code", "", { required: true, min: 6 })}<div class="form-actions"><button type="button" class="button button-soft" data-close-modal>Cancel</button><button type="submit" class="button button-primary">Verify and enable</button></div></form>`);
+        openModal("Set up administrator two-factor authentication", `<p class="security-help">Scan with an authenticator app, then enter its current 6-digit code. Ensure your device date and time are set automatically.</p>${qr}<div class="detail-block"><strong>Manual setup key</strong><p><code>${escapeHTML(data.totp?.secret || "A setup key was not returned.")}</code></p></div><form data-form="admin-mfa-verify" data-factor="${escapeHTML(data.id)}" data-purpose="enroll">${field("Authenticator code", "code", "", { required: true, pattern: "[0-9]{6}", maxLength: 6, inputMode: "numeric", autocomplete: "one-time-code" })}<div class="form-actions"><button type="button" class="button button-soft" data-close-modal>Cancel</button><button type="submit" class="button button-primary">Verify and enable</button></div></form>`);
       } catch (error) {
         notify(`Could not start two-factor setup: ${error.message}`, "error");
       }
@@ -1361,7 +1362,7 @@ async function handleAction(action, id) {
       try {
         const { data, error } = await supabaseClient.client.auth.mfa.challenge({ factorId: id });
         if (error) throw error;
-        openModal("Confirm two-factor removal", `<p class="security-help">Enter your current authenticator code to turn off two-factor authentication.</p><form data-form="admin-mfa-verify" data-factor="${escapeHTML(id)}" data-challenge="${escapeHTML(data.id)}" data-purpose="remove">${field("Authenticator code", "code", "", { required: true, min: 6 })}<div class="form-actions"><button type="button" class="button button-soft" data-close-modal>Cancel</button><button type="submit" class="button button-danger">Verify and turn off</button></div></form>`);
+        openModal("Confirm two-factor removal", `<p class="security-help">Enter the current 6-digit code for your SKILL-UP authenticator entry. Check that your device date and time are set automatically.</p><form data-form="admin-mfa-verify" data-factor="${escapeHTML(id)}" data-challenge="${escapeHTML(data.id)}" data-purpose="remove">${field("Authenticator code", "code", "", { required: true, pattern: "[0-9]{6}", maxLength: 6, inputMode: "numeric", autocomplete: "one-time-code" })}<div class="form-actions"><button type="button" class="button button-soft" data-close-modal>Cancel</button><button type="submit" class="button button-danger">Verify and turn off</button></div></form>`);
       } catch (error) {
         notify(`Could not verify the authenticator: ${error.message}`, "error");
       }
@@ -1779,7 +1780,7 @@ async function handleFormSubmit(form) {
       render();
       notify(form.dataset.purpose === "remove" ? "Administrator two-factor authentication turned off." : "Administrator two-factor authentication enabled.");
     } catch (error) {
-      notify(`Could not verify the authenticator code: ${error.message}`, "error");
+      notify(`Could not verify the authenticator code: ${supabaseClient.formatAuthenticatorError(error)}`, "error");
     }
     return;
   }
@@ -1869,7 +1870,7 @@ async function handleFormSubmit(form) {
       const uploadedVideoIds = [];
       try {
         const moduleMaterials = [];
-        for (const module of moduleEntries) {
+        const uploadModuleMaterial = async (module) => {
           if (module.file) {
             const uploadStatus = module.row.querySelector("[data-module-upload-status]");
             if (module.file.type === "application/pdf") {
@@ -1880,32 +1881,38 @@ async function handleFormSubmit(form) {
               uploadedPaths.push(path);
               uploadStatus.textContent = "Uploading PDF to Supabase…";
               const storedPath = await supabaseClient.uploadCourseMaterial(path, module.file);
-              moduleMaterials.push({
+              uploadStatus.textContent = "PDF uploaded.";
+              return {
                 provider: "supabase",
                 path: storedPath,
                 fileName: module.file.name,
                 mimeType: module.file.type,
                 size: module.file.size
-              });
-              uploadStatus.textContent = "PDF uploaded.";
+              };
             } else {
               uploadStatus.textContent = "Preparing Bunny Stream upload…";
               const uploadedVideo = await uploadBunnyVideo(module.file, (percentage) => {
                 if (uploadStatus.isConnected) uploadStatus.textContent = `Uploading to Bunny Stream… ${percentage}%`;
               });
               uploadedVideoIds.push(uploadedVideo.videoId);
-              moduleMaterials.push({
+              uploadStatus.textContent = "Video uploaded to Bunny Stream.";
+              return {
                 provider: "bunny",
                 videoId: uploadedVideo.videoId,
                 fileName: module.file.name,
                 mimeType: module.file.type,
                 size: module.file.size
-              });
-              uploadStatus.textContent = "Video uploaded to Bunny Stream.";
+              };
             }
-          } else {
-            moduleMaterials.push(module.removeExisting ? null : module.oldMaterial);
           }
+          return module.removeExisting ? null : module.oldMaterial;
+        };
+        for (let offset = 0; offset < moduleEntries.length; offset += COURSE_MATERIAL_UPLOAD_CONCURRENCY) {
+          const batch = moduleEntries.slice(offset, offset + COURSE_MATERIAL_UPLOAD_CONCURRENCY);
+          const results = await Promise.allSettled(batch.map(uploadModuleMaterial));
+          const failure = results.find((result) => result.status === "rejected");
+          if (failure) throw failure.reason;
+          moduleMaterials.push(...results.map((result) => result.value));
         }
         courseData.moduleMaterials = moduleMaterials;
         const oldMaterials = current?.moduleMaterials || [];
