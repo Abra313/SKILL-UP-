@@ -674,7 +674,7 @@ async function uploadBunnyVideo(file, onProgress) {
     await new Promise((resolve, reject) => {
       const upload = new tusClient.Upload(file, {
         endpoint: "https://video.bunnycdn.com/tusupload",
-        chunkSize: 8 * 1024 * 1024,
+        chunkSize: 16 * 1024 * 1024,
         retryDelays: [0, 3000, 5000, 10000, 20000, 60000],
         headers: {
           AuthorizationSignature: credentials.signature,
@@ -1083,11 +1083,15 @@ function subscribeToPrivacyRequests() {
       void refreshAdminPrivacyPreferences();
     })
     .subscribe((status, error) => {
+      if (status === "SUBSCRIBED") {
+        privacyRequestsRealtimeError = "";
+        if (activeView === "security") render();
+        return;
+      }
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         privacyRequestsRealtimeError = error?.message || `Live privacy updates are unavailable (${status}).`;
         if (activeView === "security") render();
         console.error("Could not subscribe to privacy updates:", privacyRequestsRealtimeError);
-        notify("Live privacy-request updates are unavailable. Use Refresh to check for changes.", "error");
       }
     });
 }
