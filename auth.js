@@ -90,7 +90,7 @@
     passwordInput.autocomplete = registering || recovering ? "new-password" : "current-password";
     confirmField.querySelector("label").textContent = recovering ? "Confirm new password" : "Confirm password";
     heading.textContent = recovering ? "Choose a new password" : requestingRecovery ? "Reset your password" : registering ? "Create your account" : "Welcome back";
-    description.textContent = recovering ? "Set a new password for your SKILL-UP account." : requestingRecovery ? "We’ll email you a secure link to choose a new password." : registering ? "Register to start learning with SKILL-UP." : "Sign in to continue to your SKILL-UP workspace.";
+    description.textContent = recovering ? "Set a new password for your Skill Up Hub account." : requestingRecovery ? "We’ll email you a secure link to choose a new password." : registering ? "Register to start learning with Skill Up Hub." : "Sign in to continue to your Skill Up Hub workspace.";
     submitButton.textContent = recovering ? "Update password" : requestingRecovery ? "Send recovery link" : registering ? "Create account" : "Log in";
     loginTab.classList.toggle("active", !registering);
     registerTab.classList.toggle("active", registering);
@@ -100,7 +100,7 @@
       ? 'Remembered your password? <button type="button" data-set-mode="login">Return to sign in</button>'
       : registering
       ? 'Already have an account? <button type="button" data-set-mode="login">Log in</button>'
-      : 'Forgot your password? <button type="button" data-set-mode="reset">Reset it</button> · New to SKILL-UP? <button type="button" data-set-mode="register">Create an account</button>';
+      : 'Forgot your password? <button type="button" data-set-mode="reset">Reset it</button> · New to Skill Up Hub? <button type="button" data-set-mode="register">Create an account</button>';
     message.hidden = true;
     setupLink.hidden = true;
   }

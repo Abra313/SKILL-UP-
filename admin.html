@@ -4,19 +4,20 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#10383a">
-    <meta name="description" content="SKILL-UP local administration dashboard prototype.">
-    <title>Admin dashboard — SKILL-UP</title>
+    <meta name="description" content="Skill Up Hub administration dashboard.">
+    <title>Admin dashboard — Skill Up Hub</title>
     <link rel="icon" type="image/png" href="assets/skill-up-logo.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="admin.css?v=8">
+    <link rel="stylesheet" href="admin.css?v=9">
   </head>
   <body>
     <div class="admin-app">
       <aside class="sidebar" id="sidebar">
-        <a class="sidebar-brand" href="index.html" aria-label="SKILL-UP home">
-          <img src="assets/skill-up-logo.png" alt="SKILL-UP">
+        <a class="sidebar-brand" href="index.html" aria-label="Skill Up Hub home">
+          <img src="assets/skill-up-logo.png" alt="Skill Up">
+          <b class="brand-hub-label">HUB</b>
           <span>ADMIN</span>
         </a>
         <div class="workspace-label">WORKSPACE</div>
@@ -48,17 +49,17 @@
     <div class="modal-layer" id="modal-layer" hidden>
       <div class="modal-backdrop" data-close-modal></div>
       <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <div class="modal-header"><div><p class="modal-eyebrow">SKILL-UP ADMIN</p><h2 id="modal-title"></h2></div><button class="icon-button modal-close" type="button" data-close-modal aria-label="Close dialog">×</button></div>
+        <div class="modal-header"><div><p class="modal-eyebrow">SKILL UP HUB ADMIN</p><h2 id="modal-title"></h2></div><button class="icon-button modal-close" type="button" data-close-modal aria-label="Close dialog">×</button></div>
         <div class="modal-body" id="modal-body"></div>
       </section>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="supabase-client.js?v=6"></script>
+    <script src="supabase-client.js?v=9"></script>
     <script src="auth-store.js"></script>
-    <script src="course-utils.js?v=3"></script>
+    <script src="course-utils.js?v=4"></script>
     <script src="ai-course-catalog.js?v=2"></script>
     <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js"></script>
-    <script src="admin.js?v=18"></script>
+    <script src="admin.js?v=21"></script>
   </body>
 </html>

@@ -25,7 +25,7 @@
   function formatAuthenticatorError(error) {
     const message = error?.message || String(error || "Authenticator verification failed.");
     if (/invalid totp|invalid code/i.test(message)) {
-      return "The code was rejected. Check your device's automatic date and time, make sure you selected the SKILL-UP entry in your authenticator app, and enter a fresh 6-digit code before it expires.";
+      return "The code was rejected. Check your device's automatic date and time, make sure you selected the Skill Up Hub entry in your authenticator app, and enter a fresh 6-digit code before it expires.";
     }
     return message;
   }
@@ -61,13 +61,24 @@
     });
     if (error) {
       let message = error.message;
+      if (error.context?.message && !/failed to send a request/i.test(error.context.message)) {
+        message = `${message}: ${error.context.message}`;
+      }
       if (error.context?.clone) {
         try {
           const response = await error.context.clone().json();
           if (response?.error) message = response.error;
         } catch {
-          // Keep the original Functions error when its response is not JSON.
+          try {
+            const responseText = await error.context.clone().text();
+            if (responseText) message = `${message}: ${responseText.slice(0, 300)}`;
+          } catch {
+            // Keep the original Functions error when its response cannot be read.
+          }
         }
+      }
+      if (/failed to send a request to the edge function/i.test(message)) {
+        message = "Could not reach the Bunny upload function. Check your connection, then verify that bunny-course-media is deployed to this Supabase project.";
       }
       throw new Error(message);
     }
@@ -97,6 +108,65 @@
         videoIds: uniqueIds.slice(index, index + 100)
       });
     }
+  }
+
+  async function invokeCoursePayments(action, payload = {}) {
+    const { data, error } = await client.functions.invoke("course-payments", {
+      body: { action, ...payload }
+    });
+    if (error) {
+      let message = error.message || "The payment request failed.";
+      if (error.context?.clone) {
+        try {
+          const response = await error.context.clone().json();
+          if (response?.error) message = response.error;
+        } catch {
+          if (error.context?.message) message = `${message}: ${error.context.message}`;
+        }
+      }
+      throw new Error(message);
+    }
+    if (!data || typeof data !== "object") {
+      throw new Error("The payment service returned an invalid response.");
+    }
+    if (data.error) throw new Error(String(data.error));
+    return data;
+  }
+
+  async function initializeCoursePayment(courseId, callbackUrl) {
+    const data = await invokeCoursePayments("initialize", { plan: "course", courseId, callbackUrl });
+    if (typeof data.authorizationUrl !== "string" || !data.authorizationUrl) {
+      throw new Error("Paystack did not return a checkout URL.");
+    }
+    return data;
+  }
+
+  async function initializeBundlePayment(callbackUrl) {
+    const data = await invokeCoursePayments("initialize", { plan: "bundle", callbackUrl });
+    if (typeof data.authorizationUrl !== "string" || !data.authorizationUrl) {
+      throw new Error("Paystack did not return a checkout URL.");
+    }
+    return data;
+  }
+
+  async function verifyCoursePayment(reference) {
+    return invokeCoursePayments("verify", { reference });
+  }
+
+  async function loadCourseAccess() {
+    const { data, error } = await client.from("course_access")
+      .select("course_id,source,payment_reference,amount_kobo,status,granted_at")
+      .order("granted_at", { ascending: false });
+    if (error) throw error;
+    return data || [];
+  }
+
+  async function loadCourseBundleAccess() {
+    const { data, error } = await client.from("course_bundle_access")
+      .select("user_id,payment_reference,amount_kobo,status,granted_at")
+      .maybeSingle();
+    if (error) throw error;
+    return data;
   }
 
   async function getProfile(userId) {
@@ -261,23 +331,85 @@
   }
 
   async function getMyReferralSummary() {
-    const { data, error } = await client.rpc("get_my_referral_summary");
-    if (error) throw error;
-    if (!data) throw new Error("Your referral account is not available yet.");
-    return data;
+    const [summaryResult, payoutResult] = await Promise.all([
+      client.rpc("get_my_referral_summary"),
+      client.rpc("get_my_referral_payout_summary")
+    ]);
+    if (summaryResult.error) throw summaryResult.error;
+    if (payoutResult.error) throw payoutResult.error;
+    if (!summaryResult.data || !payoutResult.data) {
+      throw new Error("Your referral account is not available yet.");
+    }
+    return {
+      ...summaryResult.data,
+      earned: Number(payoutResult.data.earned) || 0,
+      commission: Number(payoutResult.data.available) || 0,
+      payoutAccount: payoutResult.data.account || null,
+      withdrawals: Array.isArray(payoutResult.data.withdrawals) ? payoutResult.data.withdrawals : []
+    };
   }
 
   async function getReferralAdminSummary() {
-    const [summaryResult, settingsResult] = await Promise.all([
+    const [summaryResult, settingsResult, withdrawalsResult] = await Promise.all([
       client.rpc("get_referral_admin_summary"),
-      client.from("referral_program_settings").select("commission_rate").eq("singleton", true).single()
+      client.from("referral_program_settings").select("commission_rate").eq("singleton", true).single(),
+      client.from("referral_withdrawals")
+        .select("id,user_id,amount,status,account_holder_name,bank_name,account_number,created_at,processed_at")
+        .order("created_at", { ascending: false })
+        .limit(100)
     ]);
     if (summaryResult.error) throw summaryResult.error;
     if (settingsResult.error) throw settingsResult.error;
+    if (withdrawalsResult.error) throw withdrawalsResult.error;
+    const withdrawals = withdrawalsResult.data || [];
+    const userIds = [...new Set(withdrawals.map((item) => item.user_id))];
+    let profiles = [];
+    if (userIds.length) {
+      const { data, error } = await client.from("profiles")
+        .select("id,email,full_name")
+        .in("id", userIds);
+      if (error) throw error;
+      profiles = data || [];
+    }
+    const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
     return {
       partners: summaryResult.data || [],
-      rate: Number(settingsResult.data.commission_rate)
+      rate: Number(settingsResult.data.commission_rate),
+      withdrawals: withdrawals.map((item) => ({
+        ...item,
+        learner: profileById.get(item.user_id) || null
+      }))
     };
+  }
+
+  async function saveReferralPayoutAccount(userId, account) {
+    const { data, error } = await client.from("referral_payout_accounts")
+      .upsert({
+        user_id: userId,
+        account_holder_name: String(account.account_holder_name || "").trim(),
+        bank_name: String(account.bank_name || "").trim(),
+        account_number: String(account.account_number || "").trim(),
+        updated_at: new Date().toISOString()
+      }, { onConflict: "user_id" })
+      .select("account_holder_name,bank_name,account_number,updated_at")
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  async function requestReferralWithdrawal(amount) {
+    const { data, error } = await client.rpc("request_referral_withdrawal", { p_amount: amount });
+    if (error) throw error;
+    if (!data?.id) throw new Error("The withdrawal request was not recorded.");
+    return data;
+  }
+
+  async function reviewReferralWithdrawal(id, status) {
+    const { error } = await client.rpc("review_referral_withdrawal", {
+      p_withdrawal_id: id,
+      p_status: status
+    });
+    if (error) throw error;
   }
 
   function subscribeReferrals(userId, onChange, onError, admin = false) {
@@ -319,6 +451,11 @@
     createBunnyUpload,
     createBunnyPlaybackUrl,
     removeBunnyVideos,
+    initializeCoursePayment,
+    initializeBundlePayment,
+    verifyCoursePayment,
+    loadCourseAccess,
+    loadCourseBundleAccess,
     loadLearnerWorkspaces,
     loadPrivacyPreferences,
     savePrivacyPreferences,
@@ -329,6 +466,9 @@
     getPrivacyExport,
     getMyReferralSummary,
     getReferralAdminSummary,
+    saveReferralPayoutAccount,
+    requestReferralWithdrawal,
+    reviewReferralWithdrawal,
     subscribeReferrals
   };
 })();

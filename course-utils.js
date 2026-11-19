@@ -12,27 +12,46 @@
     return "";
   }
 
+  function normalizeBunnyMaterial(videoId, source, fallbackName = "lesson-video") {
+    if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(videoId)) return null;
+    const fileName = source && typeof source === "object" && source.fileName
+      ? String(source.fileName)
+      : fallbackName;
+    const mimeType = source && typeof source === "object" && source.mimeType
+      ? String(source.mimeType)
+      : inferMaterialType(fileName) || "video/mp4";
+    if (!mimeType.startsWith("video/")) return null;
+    return {
+      provider: "bunny",
+      videoId,
+      fileName,
+      mimeType,
+      size: source && typeof source === "object" && Number.isFinite(Number(source.size))
+        ? Number(source.size)
+        : 0
+    };
+  }
+
   function normalizeModuleMaterials(value, moduleCount, courseId) {
     const materials = Array.isArray(value) ? value : [];
     return Array.from({ length: moduleCount }, (_, index) => {
       const source = materials[index];
       if (!source) return null;
       if (typeof source === "object" && source.provider === "bunny") {
-        const videoId = typeof source.videoId === "string" ? source.videoId : "";
-        if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(videoId)) return null;
-        const fileName = source.fileName ? String(source.fileName) : "lesson-video";
-        const mimeType = source.mimeType ? String(source.mimeType) : inferMaterialType(fileName);
-        if (!mimeType.startsWith("video/")) return null;
-        return {
-          provider: "bunny",
-          videoId,
-          fileName,
-          mimeType,
-          size: Number.isFinite(Number(source.size)) ? Number(source.size) : 0
-        };
+        return normalizeBunnyMaterial(
+          typeof source.videoId === "string" ? source.videoId : "",
+          source
+        );
       }
       const path = typeof source === "string" ? source : source.path;
       if (typeof path !== "string" || !path) return null;
+      const legacyBunnyVideo = /^bunny-stream:([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})$/i.exec(path);
+      if (legacyBunnyVideo) {
+        return normalizeBunnyMaterial(
+          legacyBunnyVideo[1],
+          typeof source === "object" ? source : null
+        );
+      }
       const normalizedPath = path.replace(/^course-videos\//i, "");
       if (!courseId || !normalizedPath.startsWith(`${courseId}/`)) return null;
       const fileName = typeof source === "object" && source.fileName

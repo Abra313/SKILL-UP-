@@ -52,7 +52,7 @@
   function renderAnnouncements(items) {
     if (!announcements) return;
     const notices = items.map((item) => item.data);
-    if (homepage.announcement) notices.unshift({ title: "SKILL-UP update", body: homepage.announcement });
+    if (homepage.announcement) notices.unshift({ title: "Skill Up Hub update", body: homepage.announcement });
     announcements.replaceChildren(...notices.map((notice) => {
       const article = element("article", "public-announcement");
       article.append(

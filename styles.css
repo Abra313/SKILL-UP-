@@ -29,6 +29,7 @@ button { font: inherit; }
 .nav-wrap { height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 30px; }
 .brand { display: inline-flex; align-items: center; flex: 0 0 auto; padding: 6px 11px; background: var(--deepest); border-radius: 9px; }
 .brand img { width: 116px; height: auto; }
+.brand-hub-label { margin-left: 7px; color: var(--lime, #c9f27d); font-size: 10px; font-weight: 800; letter-spacing: 1.2px; }
 .primary-nav { display: flex; align-items: center; gap: 25px; height: 100%; }
 .primary-nav > a { color: #536565; font-size: 13px; font-weight: 600; transition: color .2s ease; }
 .primary-nav > a:hover, .login-link:hover { color: var(--teal); }

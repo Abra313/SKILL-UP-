@@ -4,10 +4,12 @@ The site uses Supabase Auth for registration and login, and the `app_workspaces`
 
 ## 1. Create the database objects
 
-The app uses two database tables:
+The app uses shared workspace tables plus protected course-access and payment tables:
 
 - `profiles` stores each Auth user's name, email, and role. A database trigger creates every new profile with the `learner` role, regardless of signup metadata. The only roles are `learner` and `admin`.
 - `app_workspaces` stores the public course/content workspace, admin workspace, and each learner's private workspace as JSONB. Separate tables are not needed for those app records.
+- `course_access` stores trusted full-course grants, and `course_payments` stores Paystack transactions. Learners can read their own records but cannot create or change them in the browser.
+- `course_bundle_access` stores the trusted all-course entitlement. `referral_payout_accounts` and `referral_withdrawals` keep payout details and requests behind learner/admin row-level security.
 
 The role is read from the protected `profiles` table. Authenticated users can update their own name but cannot change their role. New registrations automatically become learners; admin accounts must be promoted manually by a trusted project owner in the SQL Editor.
 
@@ -23,7 +25,7 @@ Alternatively, in the Supabase dashboard open **SQL Editor**, paste the contents
 
 If privacy settings report that a table is missing from the API schema cache, the migration has not been applied to that project. If `supabase db push` is blocked because the remote database has older migration versions missing from this checkout, do not mark those unrelated versions as reverted. Run the privacy migration SQL in the linked project's SQL Editor, then mark only this migration as applied with `npx supabase migration repair --remote --status applied 20261108001000`. The app uses that migration to create both privacy tables, apply row-level security, and enable Realtime.
 
-For live referral tracking, apply [`supabase/migrations/20261107230000_enable_real_referrals.sql`](./supabase/migrations/20261107230000_enable_real_referrals.sql) and [`supabase/migrations/20261107234200_enable_live_referral_updates.sql`](./supabase/migrations/20261107234200_enable_live_referral_updates.sql) after the core schema. The CLI setup script applies pending migrations automatically. Referral links attribute new registrations; referral commissions are added only after an administrator independently verifies a course payment in **Payments & finance**. Online payment collection and automatic payouts require a separately configured payment provider.
+For live referral tracking, apply [`supabase/migrations/20261107230000_enable_real_referrals.sql`](./supabase/migrations/20261107230000_enable_real_referrals.sql) and [`supabase/migrations/20261107234200_enable_live_referral_updates.sql`](./supabase/migrations/20261107234200_enable_live_referral_updates.sql) after the core schema. Referral links attribute new registrations; referral commissions are managed separately from course-payment verification.
 
 ## 2. Configure authentication
 
@@ -68,9 +70,9 @@ Existing accounts and application data are read from Supabase. Browser-local app
 
 If registration reports **“Database error saving new user”**, apply all pending migrations with `powershell -ExecutionPolicy Bypass -File .\setup-supabase.ps1`. If registration still fails, inspect **Supabase Dashboard → Logs → Auth** for the database trigger error.
 
-## 5. Course modules and lesson materials
+## 5. Course modules, free previews, and lesson materials
 
-Administrators can add or remove any number of course modules. Each module can have one MP4, MOV, WebM or PDF. Videos (up to 512 MB) upload directly to Bunny Stream using resumable TUS uploads; PDF files (up to 25 MB) use the private `course-videos` Supabase Storage bucket. Learners see the uploaded file on that module in their course view; previews load only when opened. Bunny embed URLs are signed by the Edge Function after it verifies course access.
+Administrators can add or remove any number of course modules. Each module can have one MP4, MOV, WebM or PDF. Videos (up to 512 MB) upload directly to Bunny Stream using resumable TUS uploads; PDF files (up to 25 MB) use the private `course-videos` Supabase Storage bucket. Signed-in learners can preview the first module of a published course for free. A one-time ₦5,000 Paystack payment unlocks one course, or ₦25,000 unlocks all current and future published courses. Paid access is recorded server-side and checked before Bunny playback URLs or PDF links are issued.
 
 Apply the lesson-media migration to the linked Supabase project:
 
@@ -80,7 +82,7 @@ powershell -ExecutionPolicy Bypass -File .\setup-supabase.ps1
 
 The migration recreates or updates the private bucket, limits accepted file types and sizes, restores the administrator upload/delete policy, and permits enrolled learners to read their course files. The pending course-media retirement migration only removes its obsolete Storage policy; it no longer deletes course lesson references before this migration restores media access.
 
-The setup script applies pending migrations to the configured remote project. It may prompt for your Supabase access token or database password; enter credentials only in the terminal, never in the website or chat. If the CLI reports migration-history mismatches, stop and inspect the remote migration list before repairing migration history.
+The setup script applies pending migrations to the configured remote project. It may prompt for your Supabase access token or database password; enter credentials only in the terminal, never in the website or chat. If the CLI reports migration-history mismatches, stop and inspect the remote migration list before repairing migration history. Apply [`supabase/migrations/20261118164000_course_access_paystack.sql`](./supabase/migrations/20261118164000_course_access_paystack.sql) before enabling the free preview or payment flow; it preserves existing successful admin-verified payments while making new course access verifiable. Then apply [`supabase/migrations/20261119120000_course_bundles_referral_payouts.sql`](./supabase/migrations/20261119120000_course_bundles_referral_payouts.sql) before enabling bundle checkout or referral payouts.
 
 ### Configure Bunny Stream video uploads and playback
 
@@ -98,11 +100,26 @@ After linking the project and signing in to Supabase CLI, deploy the function fr
 npx supabase functions deploy bunny-course-media
 ```
 
-The function only issues upload credentials to administrators, checks learner enrollment before signing playback URLs, and removes replaced videos. The browser uploads video bytes directly to Bunny with TUS; Bunny API credentials never reach the browser. Keep the Supabase Storage policies for enrolled learners and administrators in place for PDFs.
+The function only issues upload credentials to administrators, allows free previews of the first published module, checks trusted full-course access before signing later-module playback URLs, and removes replaced videos. The browser uploads video bytes directly to Bunny with TUS; Bunny API credentials never reach the browser.
+
+### Configure Paystack course payments
+
+In the Supabase Dashboard for the same project, add `PAYSTACK_SECRET_KEY` under **Project Settings → Edge Functions → Secrets**. Use a Paystack test secret key while testing, then replace it with a live secret key when ready to collect real payments. Do not put this key in `.env`, browser configuration, or frontend code.
+
+After applying the course-access migration, deploy the payment verifier:
+
+```powershell
+npx supabase functions deploy course-payments
+npx supabase functions deploy bunny-course-media
+```
+
+The learner is redirected to Paystack checkout. After Paystack returns, the Edge Function verifies the transaction directly with Paystack, requires the exact ₦5,000 course or ₦25,000 all-course NGN amount and the signed-in learner/plan metadata, then grants the matching access. Bundle access includes courses published in the future. A browser-side “success” value alone never unlocks paid materials. Verified course and bundle payments each credit a referred learner's referrer at the configured 20% rate; the admin can change this rate.
+
+Learners can save bank details in Referral programme and request any amount up to their available balance. Each request reserves the funds until an admin marks it paid or rejects it. Payments are manual bank transfers performed outside the app; do not mark a request paid until the transfer has completed. No minimum withdrawal applies.
 
 Troubleshooting:
 
-- **PDF preview says “Object not found”:** apply the lesson-media migration so the private bucket and enrolled-learner read policy exist, then re-upload the PDF if it was uploaded to a different project or before the bucket was configured. Confirm the learner has an active enrollment or successful purchase for that course.
+- **PDF preview says “Object not found”:** apply the lesson-media and course-access migrations so the private bucket and access policy exist, then re-upload the PDF if it was uploaded to a different project or before the bucket was configured. Module 1 files are free for published courses; later modules require an active course-access grant.
 - **Bunny player shows 403:** confirm `BUNNY_STREAM_TOKEN_AUTH_KEY` is the distinct token-authentication key from the library's **Security** page, not the Stream API key. Verify embed view token authentication is enabled and add the deployed website domain to the library's allowed embedding domains. A correctly signed token cannot override Bunny embedding restrictions.
-- **Authenticator code is rejected:** use the current 6-digit code for this account's SKILL-UP entry; enable automatic date/time on the phone and try a fresh code.
+- **Authenticator code is rejected:** use the current 6-digit code for this account's Skill Up Hub entry; enable automatic date/time on the phone and try a fresh code.
 - **Video uploads feel slow:** uploads now run up to three module files at once. A single video's transfer time still depends on file size and network upload bandwidth; Bunny encoding begins after transfer and is not awaited by course save.

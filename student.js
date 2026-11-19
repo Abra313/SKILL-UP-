@@ -3,7 +3,9 @@ const currentUser = await window.skillUpAuth.requireRole("learner");
 if (!currentUser) return;
 const supabaseClient = window.skillUpSupabase;
 const LEARNER_ID = currentUser.id;
-const COURSE_INSTRUCTOR = "Skill up Team";
+const COURSE_INSTRUCTOR = "Skill Up Hub Team";
+const COURSE_ACCESS_PRICE_NGN = 5000;
+const ALL_COURSES_PRICE_NGN = 25000;
 const learnerContent = document.querySelector("#learner-content");
 const learnerSidebar = document.querySelector("#learner-sidebar");
 const learnerModal = document.querySelector("#learner-modal-layer");
@@ -97,7 +99,11 @@ function readLearnerState(source, publicWorkspace) {
   const loaded = Object.fromEntries(Object.keys(defaults).map((key) => [key, source[key] ?? defaults[key]]));
   const publishedCourses = (publicWorkspace?.courses || [])
     .filter((course) => course.status === "Published")
-    .map((course) => ({ ...window.skillUpCourseUtils.normalizeCourse(course), instructor: COURSE_INSTRUCTOR }));
+    .map((course) => ({
+      ...window.skillUpCourseUtils.normalizeCourse(course),
+      price: COURSE_ACCESS_PRICE_NGN,
+      instructor: COURSE_INSTRUCTOR
+    }));
   loaded.courses = publicWorkspace?.catalogInitialized
     ? publishedCourses
     : publishedCourses.length
@@ -132,12 +138,18 @@ function readLearnerState(source, publicWorkspace) {
   return loaded;
 }
 let learnerState;
+let courseAccess = [];
+let courseBundleAccess = null;
 try {
-  const [publicWorkspace, learnerWorkspace] = await Promise.all([
+  const [publicWorkspace, learnerWorkspace, savedCourseAccess, savedBundleAccess] = await Promise.all([
     supabaseClient.loadWorkspace("public"),
-    supabaseClient.loadWorkspace(`learner:${currentUser.id}`)
+    supabaseClient.loadWorkspace(`learner:${currentUser.id}`),
+    supabaseClient.loadCourseAccess(),
+    supabaseClient.loadCourseBundleAccess()
   ]);
   learnerState = readLearnerState(learnerWorkspace, publicWorkspace);
+  courseAccess = savedCourseAccess;
+  courseBundleAccess = savedBundleAccess;
   if (!learnerWorkspace) {
     const snapshot = { ...learnerState };
     delete snapshot.courses;
@@ -154,6 +166,7 @@ try {
 let activeLearnerView = "dashboard";
 let courseSearch = "";
 let courseCategory = "All";
+let billingCourseId = "";
 let certificateFocus = "";
 let previousModalFocus = null;
 
@@ -214,8 +227,9 @@ function learnerAvatar(name, picture = "", className = "") {
 function getCourse(id) { return learnerState.courses.find((course) => course.id === id); }
 function getProgress(id) { return learnerState.progress[id] || { completedLessons: [], lastLesson: 0, completed: false, assignment: "", feedback: "" }; }
 function ownsCourse(id) {
-  return learnerState.purchases.some((purchase) => purchase.courseId === id && purchase.status === "Successful")
-    || (learnerState.enrollments || []).some((enrollment) => enrollment.courseId === id && enrollment.status === "Active");
+  return courseBundleAccess?.status === "active" || courseAccess.some((access) =>
+    access.course_id === id && access.status === "active"
+  );
 }
 function progressPercent(id) {
   const course = getCourse(id);
@@ -225,10 +239,9 @@ function progressPercent(id) {
   return state.completed ? 100 : Math.min(99, Math.round((state.completedLessons.length / count) * 100));
 }
 function enrolledCourses() {
-  const courseIds = new Set([
-    ...learnerState.purchases.filter((purchase) => purchase.status === "Successful").map((purchase) => purchase.courseId),
-    ...(learnerState.enrollments || []).filter((enrollment) => enrollment.status === "Active").map((enrollment) => enrollment.courseId)
-  ]);
+  const courseIds = new Set(courseAccess
+    .filter((access) => access.status === "active")
+    .map((access) => access.course_id));
   return [...courseIds].map(getCourse).filter(Boolean);
 }
 function completedCourses() { return enrolledCourses().filter((course) => getProgress(course.id).completed); }
@@ -236,7 +249,7 @@ function activeCourses() { return enrolledCourses().filter((course) => !getProgr
 function selectedOrFirstOwned() { return getCourse(certificateFocus) || activeCourses()[0] || enrolledCourses()[0]; }
 
 function pageHeading(title, description, actions = "") {
-  return `<div class="learner-heading"><div><p class="learner-kicker">YOUR SKILL-UP SPACE</p><h1>${escapeLearner(title)}</h1><p>${description}</p></div><div class="learner-actions">${actions}</div></div>`;
+  return `<div class="learner-heading"><div><p class="learner-kicker">YOUR SKILL UP HUB SPACE</p><h1>${escapeLearner(title)}</h1><p>${description}</p></div><div class="learner-actions">${actions}</div></div>`;
 }
 function button(label, action, id = "", style = "soft", extra = "") {
   return `<button type="button" class="learner-button learner-button-${style}" data-action="${escapeLearner(action)}" ${id ? `data-id="${escapeLearner(id)}"` : ""} ${extra}>${label}</button>`;
@@ -296,26 +309,48 @@ function catalogCard(course) {
   const modules = (course.modules || "").split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
   const intro = course.introduction || course.description || "Course introduction coming soon.";
   const outline = `<details class="catalog-preview"><summary>Preview syllabus <span>${objectives.length} objectives · ${modules.length} modules</span></summary><div class="catalog-preview-content"><h4>Learning objectives</h4>${objectives.length ? `<ul>${objectives.map((item) => `<li>${escapeLearner(item)}</li>`).join("")}</ul>` : `<p>Learning objectives coming soon.</p>`}<h4>Course modules</h4>${modules.length ? `<ol>${modules.map((item) => `<li>${escapeLearner(item)}</li>`).join("")}</ol>` : `<p>Course modules coming soon.</p>`}</div></details>`;
-  return `<article class="catalog-card"><div class="catalog-image"><img src="${escapeLearner(course.thumbnail)}" alt="" loading="lazy"><span class="catalog-category">${escapeLearner(course.category)}</span></div><div class="catalog-body"><div class="catalog-meta"><span>${escapeLearner(course.level || "All levels")}</span><span class="catalog-rating">✦ 4.9</span></div><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.description)}</p><div class="catalog-introduction"><strong>Introduction</strong><p>${escapeLearner(intro)}</p></div>${outline}<div class="catalog-meta"><span>${escapeLearner(course.instructor)}</span><span>${escapeLearner(course.duration || "Self-paced")}</span></div><div class="catalog-actions"><button class="learner-link-button" data-action="course-details" data-id="${escapeLearner(course.id)}">Course details</button>${button("Access course", "open-learning-course", course.id, "primary")}</div></div></article>`;
+  return `<article class="catalog-card"><div class="catalog-image"><img src="${escapeLearner(course.thumbnail)}" alt="" loading="lazy"><span class="catalog-category">${escapeLearner(course.category)}</span></div><div class="catalog-body"><div class="catalog-meta"><span>${escapeLearner(course.level || "All levels")}</span><span class="catalog-rating">✦ 4.9</span></div><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.description)}</p><div class="catalog-introduction"><strong>Introduction</strong><p>${escapeLearner(intro)}</p></div>${outline}<div class="catalog-meta"><span>${escapeLearner(course.instructor)}</span><span>${escapeLearner(course.duration || "Self-paced")}</span></div><div class="catalog-actions"><button class="learner-link-button" data-action="course-details" data-id="${escapeLearner(course.id)}">Course details</button>${button(ownsCourse(course.id) ? "Continue learning" : "Start free module 1", "open-learning-course", course.id, "primary")}</div></div></article>`;
 }
 
 function renderCatalog() {
   const available = learnerState.courses.filter((course) => course.status !== "Archived");
   const categories = ["All", ...new Set(available.map((course) => course.category))];
-  const publishedCount = available.filter((course) => course.status === "Published").length;
+  const publishedCourses = available.filter((course) => course.status === "Published");
+  const publishedCount = publishedCourses.length;
   const visible = available.filter((course) => (course.status === "Published" || ownsCourse(course.id))
     && (courseCategory === "All" || course.category === courseCategory)
     && (`${course.title} ${course.description} ${course.introduction} ${course.objectives} ${course.modules} ${course.instructor} ${course.category}`.toLowerCase().includes(courseSearch.toLowerCase())));
+  const bundleNotice = courseBundleAccess?.status === "active"
+    ? notice("<strong>You have all-course access.</strong> Your library includes every published course.")
+    : "";
   return `${pageHeading("Explore courses", `${publishedCount} published courses to explore. Find a skill that fits your goals, view the curriculum, and choose where to begin.`)}
-    <div class="catalog-toolbar"><div class="catalog-filters">${categories.map((category) => `<button class="catalog-filter${courseCategory === category ? " active" : ""}" data-category="${escapeLearner(category)}">${escapeLearner(category)}</button>`).join("")}</div><input class="learner-search" type="search" data-course-search placeholder="Search courses, skills or instructors…" value="${escapeLearner(courseSearch)}" aria-label="Search courses"></div>
+    ${bundleNotice}${renderCatalogBilling(publishedCourses)}<div class="catalog-toolbar"><div class="catalog-filters">${categories.map((category) => `<button class="catalog-filter${courseCategory === category ? " active" : ""}" data-category="${escapeLearner(category)}">${escapeLearner(category)}</button>`).join("")}</div><input class="learner-search" type="search" data-course-search placeholder="Search courses, skills or instructors…" value="${escapeLearner(courseSearch)}" aria-label="Search courses"></div>
     <div class="catalog-grid">${visible.map(catalogCard).join("") || empty("No courses found.", "Try another search or category.")}</div>`;
+}
+
+function renderCatalogBilling(publishedCourses) {
+  if (courseBundleAccess?.status === "active" || !publishedCourses.length) return "";
+  const payableCourses = publishedCourses.filter((course) => !ownsCourse(course.id)
+    && String(course.modules || "").split(/\r?\n/).map((module) => module.trim()).filter(Boolean).length > 1);
+  const selectedCourse = payableCourses.find((course) => course.id === billingCourseId) || payableCourses[0];
+  billingCourseId = selectedCourse?.id || "";
+  const courseOptions = payableCourses.map((course) =>
+    `<option value="${escapeLearner(course.id)}"${course.id === billingCourseId ? " selected" : ""}>${escapeLearner(course.title)}</option>`
+  ).join("");
+  const singleCoursePlan = payableCourses.length
+    ? `<article class="course-plan-card"><span class="course-plan-tag">SINGLE COURSE</span><h3>Build skills in one subject</h3><p class="course-plan-summary">Get complete access to one course and all its learning materials.</p><div class="course-plan-price"><strong>${learnerMoney(COURSE_ACCESS_PRICE_NGN)}</strong><span>one-time</span></div><label class="course-plan-select-label" for="billing-course-select">Choose a course</label><select class="course-plan-select" id="billing-course-select" data-billing-course>${courseOptions}</select><ul class="course-plan-benefits"><li>Every module and lesson</li><li>Videos, PDFs and course resources</li><li>Assignments, quizzes and progress tracking</li></ul>${button("Continue with this course", "pay-selected-course", "", "primary")}</article>`
+    : "";
+  return `<section class="learner-panel course-purchase-panel catalog-billing"><header class="course-purchase-header"><div><span class="learner-kicker">COURSE ACCESS</span><h2>Choose how you want to learn</h2><p>Compare the plans and select the access that works for you. All payments are one-time.</p></div><span class="course-payment-secure">Secure checkout</span></header><div class="learner-panel-body"><div class="course-plan-grid${singleCoursePlan ? "" : " course-plan-grid-single"}">${singleCoursePlan}<article class="course-plan-card course-plan-featured"><span class="course-plan-recommendation">BEST VALUE</span><span class="course-plan-tag">ALL-COURSE ACCESS</span><h3>Learn across the catalog</h3><p class="course-plan-summary">A single plan for learners ready to explore more topics.</p><div class="course-plan-price"><strong>${learnerMoney(ALL_COURSES_PRICE_NGN)}</strong><span>one-time</span></div><ul class="course-plan-benefits"><li>Access to all published courses</li><li>Full course materials and activities</li><li>One payment, no recurring fees</li></ul>${button("Choose all-course access", "pay-all-courses", "", "primary")}</article></div></div></section>`;
 }
 
 function courseDetails(course) {
   const objectives = (course.objectives || "").split(/\r?\n/).filter(Boolean);
   const modules = (course.modules || "").split(/\r?\n/).filter(Boolean);
   const materials = (course.materials || "").split("\n").filter(Boolean);
-  openLearnerModal(course.title, `<div class="course-detail-hero"><img src="${escapeLearner(course.thumbnail)}" alt=""><div class="course-detail-overlay"><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.category)} · ${escapeLearner(course.level || "All levels")} · ${escapeLearner(course.duration || "Self-paced")}</p></div></div><div class="detail-sections"><div class="learner-detail-box"><h3>Introduction</h3><p>${escapeLearner(course.introduction || course.description || "Introduction coming soon.")}</p></div><div class="learner-detail-box"><h3>Learning objectives</h3><ul>${objectives.map((item) => `<li>${escapeLearner(item)}</li>`).join("") || "<li>Learning objectives coming soon.</li>"}</ul></div><div class="learner-detail-box"><h3>Course modules</h3><ul>${modules.map((item) => `<li>${escapeLearner(item)}</li>`).join("") || "<li>Curriculum coming soon.</li>"}</ul></div><div class="learner-detail-box"><h3>About this course</h3><p>${escapeLearner(course.description || "Course description coming soon.")}</p></div><div class="learner-detail-box"><h3>Instructor</h3><p>${escapeLearner(course.instructor)}<br>SKILL-UP course instructor</p></div><div class="learner-detail-box"><h3>Requirements & completion</h3><p>${escapeLearner(course.requirements || "No prerequisites listed.")}</p></div><div class="learner-detail-box"><h3>Assignments & quizzes</h3><p><strong>Assignment:</strong> ${escapeLearner(course.assignments || "To be announced.")}<br><strong>Quizzes:</strong> ${escapeLearner(course.quizzes || "To be announced.")}</p></div><div class="learner-detail-box"><h3>Learning resources</h3><p>${materials.map((item) => `<a href="${escapeLearner(item)}" target="_blank" rel="noopener noreferrer">Open learning material ↗</a>`).join("<br>") || "Materials are shared in the lessons."}</p></div></div><div class="modal-actions"><button class="learner-button learner-button-soft" data-close-learner-modal>Close</button><button class="learner-button learner-button-primary" data-action="open-learning-course" data-id="${escapeLearner(course.id)}">Access course syllabus →</button></div>`);
+  const resources = ownsCourse(course.id)
+    ? materials.map((item) => `<a href="${escapeLearner(item)}" target="_blank" rel="noopener noreferrer">Open learning material ↗</a>`).join("<br>") || "Materials are shared in the lessons."
+    : "Additional course links unlock with full access.";
+  openLearnerModal(course.title, `<div class="course-detail-hero"><img src="${escapeLearner(course.thumbnail)}" alt=""><div class="course-detail-overlay"><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.category)} · ${escapeLearner(course.level || "All levels")} · ${escapeLearner(course.duration || "Self-paced")}</p></div></div><div class="learner-notice"><span>ⓘ</span><div>Module 1 is available to preview. Compare full-access plans in the course catalog.</div></div><div class="detail-sections"><div class="learner-detail-box"><h3>Introduction</h3><p>${escapeLearner(course.introduction || course.description || "Introduction coming soon.")}</p></div><div class="learner-detail-box"><h3>Learning objectives</h3><ul>${objectives.map((item) => `<li>${escapeLearner(item)}</li>`).join("") || "<li>Learning objectives coming soon.</li>"}</ul></div><div class="learner-detail-box"><h3>Course modules</h3><ul>${modules.map((item, index) => `<li>${escapeLearner(item)}${index === 0 ? " · Free preview" : " · Included with full access"}</li>`).join("") || "<li>Curriculum coming soon.</li>"}</ul></div><div class="learner-detail-box"><h3>About this course</h3><p>${escapeLearner(course.description || "Course description coming soon.")}</p></div><div class="learner-detail-box"><h3>Instructor</h3><p>${escapeLearner(course.instructor)}<br>Skill Up Hub course instructor</p></div><div class="learner-detail-box"><h3>Requirements & completion</h3><p>${escapeLearner(course.requirements || "No prerequisites listed.")}</p></div><div class="learner-detail-box"><h3>Assignments & quizzes</h3><p><strong>Assignment:</strong> ${escapeLearner(course.assignments || "To be announced.")}<br><strong>Quizzes:</strong> ${escapeLearner(course.quizzes || "To be announced.")}</p></div><div class="learner-detail-box"><h3>Learning resources</h3><p>${resources}</p></div></div><div class="modal-actions"><button class="learner-button learner-button-soft" data-close-learner-modal>Close</button><button class="learner-button learner-button-primary" data-action="open-learning-course" data-id="${escapeLearner(course.id)}">Start free module 1 →</button></div>`);
 }
 
 function renderLearning() {
@@ -324,7 +359,7 @@ function renderLearning() {
     const complete = getProgress(course.id).completed;
     const progress = progressPercent(course.id);
     const enrolledAt = learnerState.enrollments?.find((enrollment) => enrollment.courseId === course.id)?.enrolledAt
-      || learnerState.purchases.find((purchase) => purchase.courseId === course.id)?.purchasedAt;
+      || learnerState.purchases.find((purchase) => purchase.courseId === course.id || purchase.plan === "bundle")?.purchasedAt;
     return `<article class="learning-card"><div class="learning-card-image"><img src="${escapeLearner(course.thumbnail)}" alt="" loading="lazy"><span>${complete ? "COURSE COMPLETED" : "YOUR NEXT LESSON IS READY"}</span></div><div class="learning-card-body"><h3>${escapeLearner(course.title)}</h3><p>${escapeLearner(course.instructor)} · ${escapeLearner(course.duration || "Self-paced")} · Enrolled ${learnerDate(enrolledAt?.slice(0, 10))}</p><div class="learning-progress-header"><span>${complete ? "Completed" : "Course progress"}</span><strong>${progress}%</strong></div><div class="progress-track"><span style="width:${progress}%"></span></div><div class="learning-footer">${complete ? button("Course outline", "open-learning-course", course.id) : `<span class="muted">Last lesson: ${escapeLearner((course.modules || "").split("\n")[getProgress(course.id).lastLesson] || "Start learning")}</span>`}${button("Access course", "open-learning-course", course.id, "primary")}</div></div></article>`;
   }).join("");
   return `${pageHeading("My learning", "Your courses and saved learning progress.", button("Find another course", "navigate-catalog", "", "soft"))}
@@ -346,32 +381,58 @@ async function accessCourse(id) {
     notify("This course is not currently available.", "error");
     return;
   }
-  if (ownsCourse(id)) {
-    openLearningCourse(id);
+  openLearningCourse(id);
+}
+
+async function startCoursePayment(courseId, buttonElement) {
+  if (ownsCourse(courseId)) {
+    notify("You already have full access to this course.");
     return;
   }
-  const saved = await saveLearnerState(() => {
-    learnerState.enrollments ||= [];
-    if (!learnerState.enrollments.some((enrollment) => enrollment.courseId === id && enrollment.status === "Active")) {
-      learnerState.enrollments.push({
-        id: `ENR-${LEARNER_ID}-${id}`,
-        courseId: id,
-        status: "Active",
-        enrolledAt: new Date().toISOString()
-      });
+  const course = getCourse(courseId);
+  if (!course || course.status !== "Published") {
+    notify("This course is not currently available.", "error");
+    return;
+  }
+  return startPaymentCheckout("course", courseId, buttonElement);
+}
+
+async function startBundlePayment(buttonElement) {
+  if (courseBundleAccess?.status === "active") {
+    notify("You already have all-course access.");
+    return;
+  }
+  if (!learnerState.courses.some((course) => course.status === "Published")) {
+    notify("There are no published courses available for the bundle yet.", "error");
+    return;
+  }
+  return startPaymentCheckout("bundle", null, buttonElement);
+}
+
+async function startPaymentCheckout(plan, courseId, buttonElement) {
+  const originalLabel = buttonElement?.textContent;
+  if (buttonElement) {
+    buttonElement.disabled = true;
+    buttonElement.textContent = "Connecting to Paystack…";
+  }
+  try {
+    const callbackUrl = new URL("student.html", window.location.href);
+    callbackUrl.searchParams.set("payment", plan);
+    callbackUrl.searchParams.set("action", "verify");
+    const checkout = plan === "bundle"
+      ? await supabaseClient.initializeBundlePayment(callbackUrl.href)
+      : await supabaseClient.initializeCoursePayment(courseId, callbackUrl.href);
+    const checkoutUrl = new URL(checkout.authorizationUrl);
+    if (checkoutUrl.origin !== "https://checkout.paystack.com") {
+      throw new Error("Paystack returned an unexpected checkout address.");
     }
-    learnerState.enrollmentRequests = learnerState.enrollmentRequests.map((request) =>
-      request.course_id === id && request.status === "Pending"
-        ? { ...request, status: "Cancelled", cancelled_at: new Date().toISOString() }
-        : request
-    );
-    learnerState.progress[id] ||= getProgress(id);
-    addActivity("▷", "violet", "Course enrollment started", course.title);
-  }, `${course.title} added to My learning. Progress tracking is ready.`);
-  if (saved) {
-    certificateFocus = id;
-    activeLearnerView = "course";
-    renderLearnerView();
+    window.location.assign(checkoutUrl.href);
+  } catch (error) {
+    notify(`Could not start ${plan === "bundle" ? "all-course" : "course"} payment: ${error.message}`, "error");
+    if (buttonElement?.isConnected) {
+      buttonElement.disabled = false;
+      buttonElement.textContent = originalLabel || `Pay ${learnerMoney(plan === "bundle" ? ALL_COURSES_PRICE_NGN : COURSE_ACCESS_PRICE_NGN)}`;
+    }
   }
 }
 
@@ -411,10 +472,11 @@ function renderCourseRoom() {
     const current = progress.lastLesson === index && !completed;
     const lessonStatus = owned
       ? current ? "Continue here" : completed ? "Completed" : "Not started"
-      : "Syllabus preview";
+      : index === 0 ? "Free preview" : "Locked · full access required";
     const material = course.moduleMaterials?.[index];
-    const materialPreview = owned && material ? `<details class="lesson-material-preview" data-course-material-preview data-course-id="${escapeLearner(course.id)}" data-material-provider="${escapeLearner(material.provider || "supabase")}" data-material-path="${escapeLearner(material.path || "")}" data-material-video-id="${escapeLearner(material.videoId || "")}" data-material-type="${escapeLearner(material.mimeType)}"><summary>Preview ${material.mimeType === "application/pdf" ? "PDF" : "video"} · ${escapeLearner(material.fileName)}</summary><div class="lesson-material-player" data-material-preview>Open to load this lesson material.</div></details>` : "";
-    const lessonContent = `<span class="lesson-number">${completed ? "✓" : index + 1}</span><span class="lesson-details"><strong>${escapeLearner(lesson)}</strong><small>Module ${index + 1} · ${lessonStatus}</small></span>${owned ? `<button class="lesson-complete" type="button" aria-pressed="${completed}" aria-label="${completed ? "Mark lesson incomplete" : "Mark lesson complete"}" data-action="toggle-lesson" data-id="${escapeLearner(course.id)}" data-lesson="${index}">${completed ? "✓" : ""}</button>` : ""}`;
+    const canOpenModule = owned || index === 0;
+    const materialPreview = canOpenModule && material ? `<details class="lesson-material-preview" data-course-material-preview data-course-id="${escapeLearner(course.id)}" data-material-module-index="${index}" data-material-provider="${escapeLearner(material.provider || "supabase")}" data-material-path="${escapeLearner(material.path || "")}" data-material-video-id="${escapeLearner(material.videoId || "")}" data-material-type="${escapeLearner(material.mimeType)}"><summary>Preview ${material.mimeType === "application/pdf" ? "PDF" : "video"} · ${escapeLearner(material.fileName)}</summary><div class="lesson-material-player" data-material-preview>Open to load this lesson material.</div></details>` : "";
+    const lessonContent = `<span class="lesson-number">${completed ? "✓" : index + 1}</span><span class="lesson-details"><strong>${escapeLearner(lesson)}</strong><small>Module ${index + 1} · ${lessonStatus}</small></span>${owned ? `<button class="lesson-complete" type="button" aria-pressed="${completed}" aria-label="${completed ? "Mark lesson incomplete" : "Mark lesson complete"}" data-action="toggle-lesson" data-id="${escapeLearner(course.id)}" data-lesson="${index}">${completed ? "✓" : ""}</button>` : index > 0 ? `<span class="learner-badge pending">Locked</span>` : ""}`;
     return `<article class="lesson-row"><div class="lesson-row-main">${lessonContent}</div>${materialPreview}</article>`;
   }).join("");
   const materialLinks = getCourseMaterials(course).map((link) => {
@@ -423,10 +485,14 @@ function renderCourseRoom() {
     return `<a class="learner-button learner-button-soft" href="${escapeLearner(safeLink)}" target="_blank" rel="noopener noreferrer">${getLessonMaterialLabel(safeLink)}</a>`;
   }).join(" ");
   const percentage = progressPercent(course.id);
-  return `${pageHeading(course.title, `${escapeLearner(course.instructor)} · Course syllabus and learning resources`, `<button class="learner-button learner-button-soft" data-action="navigate-learning">← My courses</button>`)}
-    ${owned ? notice("<strong>You’re enrolled in this course.</strong> Track lesson progress and use the course resources below.") : notice("<strong>Syllabus preview.</strong> Select Access course to add this course to My learning and start tracking your progress.")}
+  const courseActions = `<button class="learner-button learner-button-soft" data-action="navigate-learning">← My courses</button>${owned ? "" : `<button class="learner-button learner-button-primary" data-action="navigate-catalog">View access plans</button>`}`;
+  const courseSidePanel = owned
+    ? `<div>${panel("Your next steps", "Practice what you learn", `<div class="detail-block"><h3>Assignment</h3><p>${escapeLearner(course.assignments || "No assignment published yet.")}</p><div style="margin-top:8px">${button("Submit assignment", "assignment", course.id, "soft")}</div></div><div class="detail-block"><h3>Knowledge check</h3><p>${escapeLearner((course.quizzes || "Course fundamentals").split("\n")[0])}</p><div style="margin-top:8px">${button(learnerState.quizzes[course.id] === undefined ? "Take practice quiz" : `Best score: ${learnerState.quizzes[course.id]}%`, "quiz", course.id, "soft")}</div></div>${progress.completed ? `<div class="detail-block"><h3>Certificate earned</h3><p>Your course completion is recorded. Open certificates to view and share it.</p><div style="margin-top:8px">${button("View certificate", "navigate-certificates", "", "lime")}</div></div>` : ""}`)}</div>`
+    : "";
+  return `${pageHeading(course.title, `${escapeLearner(course.instructor)} · Course syllabus and learning resources`, courseActions)}
+    ${owned ? notice("<strong>You have full access to this course.</strong> Track lesson progress and use all course materials below.") : notice("<strong>Module 1 is free.</strong> Watch or read its material here. View access plans in Explore courses to unlock the remaining modules.")}
     <div class="detail-sections course-learning-overview"><div class="learner-detail-box"><h3>Introduction</h3><p>${escapeLearner(course.introduction || course.description || "Introduction coming soon.")}</p></div><div class="learner-detail-box"><h3>Learning objectives</h3><ul>${objectives.map((item) => `<li>${escapeLearner(item)}</li>`).join("") || "<li>Learning objectives coming soon.</li>"}</ul></div></div>
-    <div class="learning-layout"><section class="learner-panel"><header class="learner-panel-header"><div><h2>Course syllabus</h2><p>${lessons.length} lessons${owned ? " · mark a lesson complete to track your progress" : " · demo only"}</p></div>${owned ? `<strong>${percentage}%</strong>` : ""}</header><div class="learner-panel-body">${owned ? `<div class="learner-progress-header"><span>Course completion</span><strong>${percentage}%</strong></div><div class="progress-track"><span style="width:${percentage}%"></span></div>` : ""}<div class="lesson-list" style="margin-top:13px">${rows || empty("Course curriculum is being prepared.")}</div><div class="learner-detail-box" style="margin-top:12px"><h3>Learning materials</h3><p>${owned ? materialLinks || "No additional learning materials are available yet." : "Course materials are available to enrolled learners."}</p></div><div class="learner-detail-box" style="margin-top:10px"><h3>Completion requirement</h3><p>${escapeLearner(course.requirements || "Complete all lessons and submit the final project.")}</p></div></div></section><div>${owned ? panel("Your next steps", "Practice what you learn", `<div class="detail-block"><h3>Assignment</h3><p>${escapeLearner(course.assignments || "No assignment published yet.")}</p><div style="margin-top:8px">${button("Submit assignment", "assignment", course.id, "soft")}</div></div><div class="detail-block"><h3>Knowledge check</h3><p>${escapeLearner((course.quizzes || "Course fundamentals").split("\n")[0])}</p><div style="margin-top:8px">${button(learnerState.quizzes[course.id] === undefined ? "Take practice quiz" : `Best score: ${learnerState.quizzes[course.id]}%`, "quiz", course.id, "soft")}</div></div>${progress.completed ? `<div class="detail-block"><h3>Certificate earned</h3><p>Your course completion is recorded. Open certificates to view and share it.</p><div style="margin-top:8px">${button("View certificate", "navigate-certificates", "", "lime")}</div></div>` : ""}`) : panel("Course access", "Your syllabus demo", `<p class="muted">This course outline is available to all learners. Enrollment unlocks progress tracking, lessons, assignments and quizzes.</p>`)}</div></div>`;
+    <div class="learning-layout${owned ? "" : " course-room-layout-free"}"><section class="learner-panel"><header class="learner-panel-header"><div><h2>Course syllabus</h2><p>${lessons.length} modules${owned ? " · mark a lesson complete to track your progress" : " · module 1 is free to preview"}</p></div>${owned ? `<strong>${percentage}%</strong>` : ""}</header><div class="learner-panel-body">${owned ? `<div class="learner-progress-header"><span>Course completion</span><strong>${percentage}%</strong></div><div class="progress-track"><span style="width:${percentage}%"></span></div>` : ""}<div class="lesson-list" style="margin-top:13px">${rows || empty("Course curriculum is being prepared.")}</div><div class="learner-detail-box" style="margin-top:12px"><h3>Learning materials</h3><p>${owned ? materialLinks || "Open each module to view its material." : "Open module 1 above to watch its video or read its PDF."}</p></div><div class="learner-detail-box" style="margin-top:10px"><h3>Completion requirement</h3><p>${escapeLearner(course.requirements || "Complete all lessons and submit the final project.")}</p></div></div></section>${courseSidePanel}</div>`;
 }
 
 async function loadLessonMaterialPreview(details) {
@@ -435,13 +501,16 @@ async function loadLessonMaterialPreview(details) {
   const provider = details.dataset.materialProvider;
   const path = details.dataset.materialPath;
   const videoId = details.dataset.materialVideoId;
+  const moduleIndex = Number(details.dataset.materialModuleIndex);
   const course = getCourse(courseId);
-  const material = course?.moduleMaterials?.find((item) => provider === "bunny"
-    ? item?.provider === "bunny" && item.videoId === videoId
-    : item?.path === path);
+  const material = course?.moduleMaterials?.[moduleIndex];
+  const validModuleIndex = Number.isInteger(moduleIndex) && moduleIndex >= 0;
+  const materialMatches = Boolean(material && (provider === "bunny"
+    ? material.provider === "bunny" && material.videoId === videoId
+    : material.provider === "supabase" && material.path === path));
   const preview = details.querySelector("[data-material-preview]");
   if (!preview) return;
-  if (!course || !ownsCourse(courseId) || !material ||
+  if (!course || !validModuleIndex || (!ownsCourse(courseId) && moduleIndex !== 0) || !materialMatches ||
       (provider === "bunny" ? !videoId : !path.startsWith(`${courseId}/`))) {
     preview.textContent = "This lesson material is unavailable.";
     return;
@@ -464,7 +533,9 @@ async function loadLessonMaterialPreview(details) {
     }
     details.dataset.loaded = "true";
   } catch (error) {
-    preview.textContent = `Preview unavailable: ${error.message}`;
+    preview.textContent = /object not found/i.test(error.message)
+      ? "This file is missing from course storage. Ask an administrator to re-upload it."
+      : `Preview unavailable: ${error.message}`;
   } finally {
     delete details.dataset.loading;
   }
@@ -520,7 +591,7 @@ function renderCertificates() {
   const completedList = completed.map((course) => {
     const progress = getProgress(course.id);
     const id = progress.certificateId || "Completion record";
-    return `<article class="certificate-tile"><span class="certificate-seal">✦</span>${badge(progress.certificateId ? "Certificate ready" : "Completed", "certificate-eligible")}<h3>${escapeLearner(course.title)}</h3><p>Completed ${learnerDate(learnerState.purchases.find((purchase) => purchase.courseId === course.id)?.purchasedAt)} · Instructor ${escapeLearner(course.instructor)}</p><div class="job-card-actions">${progress.certificateId ? `<span class="muted">${escapeLearner(id)}</span>${button("View certificate", "view-certificate", course.id, "soft")}` : `<span class="muted">Certificate requirements pending review</span>`}</div></article>`;
+    return `<article class="certificate-tile"><span class="certificate-seal">✦</span>${badge(progress.certificateId ? "Certificate ready" : "Completed", "certificate-eligible")}<h3>${escapeLearner(course.title)}</h3><p>Completed ${learnerDate(learnerState.purchases.find((purchase) => purchase.courseId === course.id || purchase.plan === "bundle")?.purchasedAt)} · Instructor ${escapeLearner(course.instructor)}</p><div class="job-card-actions">${progress.certificateId ? `<span class="muted">${escapeLearner(id)}</span>${button("View certificate", "view-certificate", course.id, "soft")}` : `<span class="muted">Certificate requirements pending review</span>`}</div></article>`;
   }).join("");
   const certificateQuery = new URLSearchParams(location.search).get("certificate");
   const verify = certificateQuery ? findCertificate(certificateQuery) : null;
@@ -559,6 +630,9 @@ async function refreshReferralCenter() {
     registrations: Number(summary.registrations) || 0,
     conversions: Number(summary.conversions) || 0,
     commission: Number(summary.commission) || 0,
+    earned: Number(summary.earned) || 0,
+    payoutAccount: summary.payoutAccount || null,
+    withdrawals: Array.isArray(summary.withdrawals) ? summary.withdrawals : [],
     history: Array.isArray(summary.history) ? summary.history : []
   };
 }
@@ -611,17 +685,23 @@ function renderReferrals() {
   referralUrl.searchParams.set("mode", "register");
   referralUrl.searchParams.set("ref", referral.code);
   const realtimeMessage = referralCenter.realtimeError ? `<p class="security-description" role="status">Live updates are temporarily unavailable. Refresh the page to see the latest activity.</p>` : "";
+  const account = referral.payoutAccount || {};
+  const withdrawalRows = referral.withdrawals.map((withdrawal) => `<div class="activity-row"><span class="activity-icon violet">₦</span><div class="activity-copy"><strong>${learnerMoney(withdrawal.amount)} withdrawal</strong><small>${learnerDate(String(withdrawal.created_at || "").slice(0, 10))}</small></div>${badge(withdrawal.status, withdrawal.status === "pending" ? "pending" : "")}</div>`).join("");
+  const savedAccountNumber = account.account_number || "";
+  const withdrawalDescription = referral.payoutAccount
+    ? `Request any amount up to your available balance of ${learnerMoney(referral.commission)}. Skill Up Hub will review and pay by bank transfer.`
+    : "Save your bank details before requesting a withdrawal.";
   return `${pageHeading("Referral programme", "Share your personal link and track registered learners and verified course purchases.")}
-    <section class="referral-hero"><div class="referral-hero-copy"><p class="learner-kicker">YOUR REFERRAL SPACE</p><h2>Good skills are worth <span>sharing.</span></h2><p>When someone creates an account through your link, their registration appears here. Eligible commissions are added after a course payment is independently verified.</p></div><div class="referral-link-card"><div class="referral-link-label">YOUR PERSONAL LINK</div><div class="referral-link-code">${escapeLearner(referralUrl.href)}</div><button class="learner-button learner-button-lime" data-action="copy-referral">Copy referral link</button><div class="referral-link-foot"><span class="referral-link-status"></span>Your referral code: ${escapeLearner(referral.code)}</div></div><span class="referral-hero-mark" aria-hidden="true">↗</span></section>
+    <section class="referral-hero"><div class="referral-hero-copy"><p class="learner-kicker">YOUR REFERRAL SPACE</p><h2>Good skills are worth <span>sharing.</span></h2><p>Earn ${referral.rate}% of each referred learner's verified course or all-course payment. You can request manual bank-transfer withdrawals from your available balance.</p></div><div class="referral-link-card"><div class="referral-link-label">YOUR PERSONAL LINK</div><div class="referral-link-code">${escapeLearner(referralUrl.href)}</div><button class="learner-button learner-button-lime" data-action="copy-referral">Copy referral link</button><div class="referral-link-foot"><span class="referral-link-status"></span>Your referral code: ${escapeLearner(referral.code)}</div></div><span class="referral-hero-mark" aria-hidden="true">↗</span></section>
     ${realtimeMessage}
-    <div class="referral-metrics"><div class="referral-metric"><span>Registrations</span><strong>${referral.registrations}</strong><small>Accounts attributed to your link</small></div><div class="referral-metric violet"><span>Verified purchases</span><strong>${referral.conversions}</strong><small>Referred learners with a verified payment</small></div><div class="referral-metric lime"><span>Commission balance</span><strong>${learnerMoney(referral.commission)}</strong><small>${referral.rate}% of verified payments</small></div><div class="referral-metric coral"><span>Programme rate</span><strong>${referral.rate}%</strong><small>Set by SKILL-UP</small></div></div>
+    <div class="referral-metrics"><div class="referral-metric"><span>Registrations</span><strong>${referral.registrations}</strong><small>Accounts attributed to your link</small></div><div class="referral-metric violet"><span>Verified purchases</span><strong>${referral.conversions}</strong><small>Referred learners with a verified payment</small></div><div class="referral-metric lime"><span>Commission balance</span><strong>${learnerMoney(referral.commission)}</strong><small>${referral.rate}% of verified payments</small></div><div class="referral-metric coral"><span>Programme rate</span><strong>${referral.rate}%</strong><small>Set by Skill Up Hub</small></div></div>
     <div class="learner-grid referral-activity-grid">${panel("Referral activity", "Registrations and verified course purchases", `<div class="activity-list">${history || empty("No registrations yet.", "Share your referral link to get started.")}</div>`)}
-    ${panel("Commission & payouts", "Verified earnings", `<p class="referral-rewards-note">Commissions are credited after an administrator verifies a course payment. Payout requests are not available until a payment provider is configured.</p>`)}</div>`;
+    ${panel("Commission & payouts", "Manual bank-transfer withdrawals", `<div class="referral-payout-grid"><form data-learner-form="payout-account"><h3>Bank account details</h3><div class="learner-field"><label for="payout-account-name">Account holder name</label><input id="payout-account-name" name="account_holder_name" required minlength="2" maxlength="120" autocomplete="name" value="${escapeLearner(account.account_holder_name || "")}"></div><div class="learner-field"><label for="payout-bank-name">Bank name</label><input id="payout-bank-name" name="bank_name" required minlength="2" maxlength="120" value="${escapeLearner(account.bank_name || "")}"></div><div class="learner-field"><label for="payout-account-number">Account number</label><input id="payout-account-number" name="account_number" type="text" inputmode="numeric" pattern="[0-9]{6,20}" minlength="6" maxlength="20" autocomplete="off" required value="${escapeLearner(savedAccountNumber)}"></div><button class="learner-button learner-button-soft" type="submit">Save bank details</button></form><div><h3>Request a withdrawal</h3><p class="referral-rewards-note">${withdrawalDescription}</p><div class="referral-available-balance"><span>Available balance</span><strong>${learnerMoney(referral.commission)}</strong><small>Total earned: ${learnerMoney(referral.earned)} · no minimum withdrawal</small></div><form data-learner-form="referral-withdrawal"><div class="learner-field"><label for="withdrawal-amount">Amount (NGN)</label><input id="withdrawal-amount" name="amount" type="number" inputmode="decimal" min="0.01" max="${referral.commission.toFixed(2)}" step="0.01" required ${!referral.payoutAccount || referral.commission <= 0 ? "disabled" : ""}></div><button class="learner-button learner-button-primary" type="submit" ${!referral.payoutAccount || referral.commission <= 0 ? "disabled" : ""}>Request bank transfer</button></form></div></div><div class="referral-withdrawals-heading"><h3>Withdrawal history</h3>${button("Refresh", "refresh-referrals", "", "soft")}</div><div class="activity-list">${withdrawalRows || empty("No withdrawal requests yet.")}</div><p class="referral-rewards-note">Requests are reviewed by an administrator. A request reserves that amount until it is marked paid or rejected; the app does not initiate transfers automatically.</p>`)}</div>`;
 }
 
 function renderProfile() {
   const profile = learnerState.profile;
-  const purchases = learnerState.purchases.filter((purchase) => purchase.status === "Successful").map((purchase) => `<div class="activity-row"><span class="activity-icon">▤</span><div class="activity-copy"><strong>${escapeLearner(getCourse(purchase.courseId)?.title || "Course")}</strong><small>${learnerDate(purchase.purchasedAt)} · ${escapeLearner(purchase.receipt)}</small></div><strong>${learnerMoney(purchase.amount)}</strong></div>`).join("");
+  const purchases = learnerState.purchases.filter((purchase) => purchase.status === "Successful").map((purchase) => `<div class="activity-row"><span class="activity-icon">▤</span><div class="activity-copy"><strong>${escapeLearner(purchase.plan === "bundle" ? "All-course access" : getCourse(purchase.courseId)?.title || "Course")}</strong><small>${learnerDate(purchase.purchasedAt)} · ${escapeLearner(purchase.receipt)}</small></div><strong>${learnerMoney(purchase.amount)}</strong></div>`).join("");
   const verifiedFactor = securityCenter.factors.find((factor) => factor.factor_type === "totp" && factor.status === "verified");
   const preferences = [
     ["product_email", "Product and learning emails", "Learning updates and account-related product messages."],
@@ -641,7 +721,7 @@ function renderProfile() {
   const mfaNotice = securityCenter.mfaError ? `<p class="security-description">${escapeLearner(securityCenter.mfaError)}</p>` : "";
   const realtimeNotice = securityCenter.realtimeError ? `<p class="security-description">${escapeLearner(securityCenter.realtimeError)}</p>` : "";
   return `${pageHeading("Profile & settings", "Manage the learner profile associated with your account.")}
-    <div class="account-profile"><aside class="profile-card"><div class="profile-photo">${profile.avatar ? `<img src="${escapeLearner(profile.avatar)}" alt="Profile photo">` : escapeLearner(profile.name.split(/\s+/).map((item) => item[0] || "").slice(0, 2).join("").toUpperCase())}</div><h2>${escapeLearner(profile.name)}</h2><p>Connected to your SKILL-UP account</p>${badge(profile.role)}<div><label class="learner-button learner-button-soft" for="avatar-upload">Upload profile photo</label><input id="avatar-upload" type="file" accept="image/*" hidden></div><div class="profile-save">${button("Explore courses", "navigate-catalog", "", "soft")}</div></aside>
+    <div class="account-profile"><aside class="profile-card"><div class="profile-photo">${profile.avatar ? `<img src="${escapeLearner(profile.avatar)}" alt="Profile photo">` : escapeLearner(profile.name.split(/\s+/).map((item) => item[0] || "").slice(0, 2).join("").toUpperCase())}</div><h2>${escapeLearner(profile.name)}</h2><p>Connected to your Skill Up Hub account</p>${badge(profile.role)}<div><label class="learner-button learner-button-soft" for="avatar-upload">Upload profile photo</label><input id="avatar-upload" type="file" accept="image/*" hidden></div><div class="profile-save">${button("Explore courses", "navigate-catalog", "", "soft")}</div></aside>
     <section class="profile-edit-card"><h2>Personal information</h2><p>Your profile is saved to your account.</p><form data-learner-form="profile"><div class="profile-edit-grid"><div class="learner-field"><label for="profile-name">Full name</label><input id="profile-name" name="name" required minlength="2" value="${escapeLearner(profile.name)}"></div><div class="learner-field"><label for="profile-email">Email address</label><input id="profile-email" value="${escapeLearner(profile.email)}" readonly></div><div class="learner-field"><label for="profile-location">Location</label><input id="profile-location" name="location" value="${escapeLearner(profile.location || "")}" placeholder="City, country"></div><div class="learner-field full"><label for="profile-bio">About you</label><textarea id="profile-bio" name="bio" maxlength="240">${escapeLearner(profile.bio || "")}</textarea></div></div><div class="security-row"><div><strong>Learning notifications</strong></div><input type="checkbox" name="notifications" ${(securityCenter.loaded ? securityCenter.preferences.product_email : profile.notifications) ? "checked" : ""} aria-label="Learning notifications"></div><div class="modal-actions"><button class="learner-button learner-button-primary" type="submit">Save profile</button></div></form>
     </section></div>
     <div class="security-center-grid">
@@ -853,7 +933,7 @@ function showAnnouncements() {
 }
 
 function exportPurchases() {
-  const rows = [["Course", "Purchased on", "Amount NGN", "Status", "Receipt"], ...learnerState.purchases.map((purchase) => [getCourse(purchase.courseId)?.title || "Course", purchase.purchasedAt, purchase.amount, purchase.status, purchase.receipt])];
+  const rows = [["Plan", "Purchased on", "Amount NGN", "Status", "Receipt"], ...learnerState.purchases.map((purchase) => [purchase.plan === "bundle" ? "All-course access" : getCourse(purchase.courseId)?.title || "Course", purchase.purchasedAt, purchase.amount, purchase.status, purchase.receipt])];
   const quote = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
   const blob = new Blob(["\ufeff", rows.map((row) => row.map(quote).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -880,7 +960,7 @@ function openPasswordChange() {
 async function beginMfaEnrollment() {
   const mfa = supabaseClient.client.auth.mfa;
   if (!mfa?.enroll) throw new Error("Two-factor authentication is not supported by the current account service.");
-  const { data, error } = await mfa.enroll({ factorType: "totp", friendlyName: "SKILL-UP learner account" });
+  const { data, error } = await mfa.enroll({ factorType: "totp", friendlyName: "Skill Up Hub learner account" });
   if (error) throw error;
   securityCenter.pendingFactor = { id: data.id, secret: data.totp?.secret, qrCode: data.totp?.qr_code };
   const qrCode = String(data.totp?.qr_code || "");
@@ -975,6 +1055,16 @@ async function handleLearnerAction(action, id, element) {
     case "navigate-referrals": navigateLearner("referrals"); break;
     case "open-learning-course": closeLearnerModal(); await accessCourse(id); break;
     case "course-details": if (course) courseDetails(course); break;
+    case "pay-selected-course": {
+      const selectedCourseId = learnerContent.querySelector("[data-billing-course]")?.value;
+      if (!selectedCourseId) {
+        notify("Select a course with full access available.", "error");
+        break;
+      }
+      await startCoursePayment(selectedCourseId, element);
+      break;
+    }
+    case "pay-all-courses": await startBundlePayment(element); break;
     case "add-to-cart": addToCart(id); break;
     case "open-cart": checkoutModal(); break;
     case "remove-cart":
@@ -1063,7 +1153,7 @@ function downloadCertificate(courseId) {
   const course = getCourse(courseId);
   const progress = course && getProgress(courseId);
   if (!course || !progress.completed || !progress.certificateId) return;
-  const text = `SKILL-UP CERTIFICATE OF COMPLETION\n\nAwarded to: ${learnerState.profile.name}\nCourse: ${course.title}\nInstructor: ${course.instructor}\nCompleted: ${learnerDate(learnerDay())}\nVerification code: ${progress.certificateId}\n\nPREVIEW — not an official credential.`;
+  const text = `SKILL UP HUB CERTIFICATE OF COMPLETION\n\nAwarded to: ${learnerState.profile.name}\nCourse: ${course.title}\nInstructor: ${course.instructor}\nCompleted: ${learnerDate(learnerDay())}\nVerification code: ${progress.certificateId}\n\nPREVIEW — not an official credential.`;
   const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
   const link = document.createElement("a");
   link.href = url;
@@ -1117,6 +1207,51 @@ document.addEventListener("submit", async (event) => {
   const values = Object.fromEntries(new FormData(form).entries());
   const kind = form.dataset.learnerForm;
   const courseId = form.dataset.id;
+  if (kind === "payout-account") {
+    const account = {
+      account_holder_name: String(values.account_holder_name || "").trim(),
+      bank_name: String(values.bank_name || "").trim(),
+      account_number: String(values.account_number || "").trim()
+    };
+    if (account.account_holder_name.length < 2 || account.bank_name.length < 2 ||
+        !/^[0-9]{6,20}$/.test(account.account_number)) {
+      notify("Enter a valid account holder name, bank name and account number.", "error");
+      return;
+    }
+    const submitButton = form.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
+    try {
+      await supabaseClient.saveReferralPayoutAccount(LEARNER_ID, account);
+      await refreshReferralCenter();
+      referralCenter.error = "";
+      renderLearnerView();
+      notify("Referral payout account saved securely.");
+    } catch (error) {
+      if (submitButton?.isConnected) submitButton.disabled = false;
+      notify(`Could not save your payout account: ${error.message}`, "error");
+    }
+    return;
+  }
+  if (kind === "referral-withdrawal") {
+    const amount = Number(values.amount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > (referralCenter.summary?.commission || 0)) {
+      notify("Enter an amount within your available referral balance.", "error");
+      return;
+    }
+    const submitButton = form.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
+    try {
+      await supabaseClient.requestReferralWithdrawal(amount);
+      await refreshReferralCenter();
+      referralCenter.error = "";
+      renderLearnerView();
+      notify("Withdrawal request submitted. The amount is reserved while an administrator reviews it.");
+    } catch (error) {
+      if (submitButton?.isConnected) submitButton.disabled = false;
+      notify(`Could not request a withdrawal: ${error.message}`, "error");
+    }
+    return;
+  }
   if (kind === "privacy-request") {
     try {
       const request = await supabaseClient.createPrivacyRequest(LEARNER_ID, form.dataset.type, String(values.details || "").trim());
@@ -1250,6 +1385,10 @@ document.addEventListener("submit", async (event) => {
 });
 
 learnerContent.addEventListener("change", async (event) => {
+  if (event.target.matches("[data-billing-course]")) {
+    billingCourseId = event.target.value;
+    return;
+  }
   const preference = event.target.dataset.privacyPreference;
   if (preference && Object.hasOwn(defaultPrivacyPreferences, preference)) {
     const previous = securityCenter.preferences[preference];
@@ -1287,6 +1426,46 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") learnerSidebar.classList.remove("open");
 });
 
+async function completeCoursePaymentFromCallback() {
+  const parameters = new URLSearchParams(window.location.search);
+  if (!["course", "bundle"].includes(parameters.get("payment")) || parameters.get("action") !== "verify") return;
+  const reference = parameters.get("reference") || parameters.get("trxref");
+  if (!reference) {
+    notify("Paystack did not return a payment reference. No course access was changed.", "error");
+    return;
+  }
+  try {
+    const payment = await supabaseClient.verifyCoursePayment(reference);
+    [courseAccess, courseBundleAccess] = await Promise.all([
+      supabaseClient.loadCourseAccess(),
+      supabaseClient.loadCourseBundleAccess()
+    ]);
+    const savedPurchase = {
+      courseId: payment.courseId,
+      plan: payment.plan,
+      purchasedAt: new Date().toISOString(),
+      amount: Number(payment.amount),
+      status: "Successful",
+      receipt: payment.reference,
+      method: "Paystack"
+    };
+    const purchaseIndex = learnerState.purchases.findIndex((item) => item.receipt === payment.reference);
+    if (purchaseIndex < 0) learnerState.purchases.push(savedPurchase);
+    else learnerState.purchases[purchaseIndex] = { ...learnerState.purchases[purchaseIndex], ...savedPurchase };
+    const cleanUrl = new URL(window.location.href);
+    ["payment", "action", "reference", "trxref"].forEach((key) => cleanUrl.searchParams.delete(key));
+    window.history.replaceState(null, "", `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+    certificateFocus = payment.courseId || "";
+    activeLearnerView = payment.plan === "bundle" ? "catalog" : "course";
+    renderLearnerView();
+    notify(payment.plan === "bundle"
+      ? "Payment confirmed. All current and future published courses are unlocked."
+      : `Payment confirmed. Full access to ${getCourse(payment.courseId)?.title || "the course"} is unlocked.`);
+  } catch (error) {
+    notify(`Could not verify the course payment: ${error.message}. Keep your Paystack reference: ${reference}`, "error");
+  }
+}
+
 const certificateQuery = new URLSearchParams(window.location.search).get("certificate");
 if (certificateQuery) {
   const found = findLearnerCertificate(certificateQuery);
@@ -1294,4 +1473,5 @@ if (certificateQuery) {
   if (!found) window.setTimeout(() => notify("This verification code does not match a completed course in your learner account.", "error"), 100);
 }
 renderLearnerView();
+void completeCoursePaymentFromCallback();
 })();

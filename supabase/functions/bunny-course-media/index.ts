@@ -8,6 +8,18 @@ const corsHeaders = {
 const videoIdPattern = /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
 const allowedVideoTypes = new Set(["video/mp4", "video/quicktime", "video/webm"]);
 
+function getCourseBunnyVideoId(material: Record<string, unknown>) {
+  if (material.provider === "bunny" && typeof material.videoId === "string" &&
+      videoIdPattern.test(material.videoId)) {
+    return material.videoId.toLowerCase();
+  }
+  if (typeof material.path === "string") {
+    const legacy = /^bunny-stream:([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})$/i.exec(material.path);
+    return legacy?.[1].toLowerCase() || null;
+  }
+  return null;
+}
+
 function respond(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -47,6 +59,9 @@ Deno.serve(async (request) => {
       .eq("id", user.id)
       .maybeSingle();
     if (profileError) return respond({ error: "Could not verify your account role." }, 500);
+    if (!profile || !["admin", "learner", "user"].includes(profile.role)) {
+      return respond({ error: "This account is not authorized to use course media." }, 403);
+    }
 
     const body = await request.json();
     const action = typeof body?.action === "string" ? body.action : "";
@@ -56,8 +71,11 @@ Deno.serve(async (request) => {
 
     if (action === "create-upload") {
       if (!isAdmin) return respond({ error: "Only administrators can upload course videos." }, 403);
-      if (!libraryId || !/^\d{1,20}$/.test(libraryId) || !apiKey) {
-        return respond({ error: "Bunny Stream upload credentials are not configured." }, 500);
+      if (!libraryId || !/^\d{1,20}$/.test(libraryId)) {
+        return respond({ error: "BUNNY_STREAM_LIBRARY_ID must be the numeric library ID from Bunny Stream, not an API key." }, 500);
+      }
+      if (!apiKey) {
+        return respond({ error: "BUNNY_STREAM_API_KEY is missing from Supabase Edge Function secrets." }, 500);
       }
       const fileName = typeof body.fileName === "string" ? body.fileName.trim() : "";
       const mimeType = typeof body.mimeType === "string" ? body.mimeType : "";
@@ -77,8 +95,11 @@ Deno.serve(async (request) => {
         body: JSON.stringify({ title: fileName })
       });
       if (!createResponse.ok) {
+        const detail = (await createResponse.text()).slice(0, 400);
         console.error("Bunny Stream video creation failed with status", createResponse.status);
-        return respond({ error: `Bunny Stream could not create the video (HTTP ${createResponse.status}).` }, 502);
+        return respond({
+          error: `Bunny Stream could not create the video (HTTP ${createResponse.status})${detail ? `: ${detail}` : "."}`
+        }, 502);
       }
 
       const video = await createResponse.json();
@@ -108,32 +129,43 @@ Deno.serve(async (request) => {
         .select("workspace_key,data")
         .in("workspace_key", workspaceKeys);
       if (workspacesError) return respond({ error: "Could not verify the course video." }, 500);
-      const courseContainsVideo = (workspaces || []).some((workspace) =>
-        Array.isArray(workspace.data?.courses) && workspace.data.courses.some(
-          (course: Record<string, unknown>) => course.id === courseId &&
-            Array.isArray(course.moduleMaterials) && course.moduleMaterials.some(
-              (material: Record<string, unknown>) => material.provider === "bunny" && material.videoId === videoId
-            )
+      const course = (workspaces || []).flatMap((workspace) =>
+        Array.isArray(workspace.data?.courses)
+          ? workspace.data.courses.filter((item: Record<string, unknown>) => item.id === courseId)
+          : []
+      ).find((item: Record<string, unknown>) =>
+        Array.isArray(item.moduleMaterials) && item.moduleMaterials.some(
+          (material: Record<string, unknown>) => getCourseBunnyVideoId(material) === videoId.toLowerCase()
         )
       );
-      if (!courseContainsVideo) return respond({ error: "This video is not attached to the selected course." }, 404);
+      if (!course || !Array.isArray(course.moduleMaterials)) {
+        return respond({ error: "This video is not attached to the selected course." }, 404);
+      }
+      const moduleIndex = course.moduleMaterials.findIndex(
+        (material: Record<string, unknown>) => getCourseBunnyVideoId(material) === videoId.toLowerCase()
+      );
+      if (moduleIndex < 0) return respond({ error: "This video is not attached to the selected course." }, 404);
 
       if (!isAdmin) {
-        const { data: workspace, error: workspaceError } = await supabase
-          .from("app_workspaces")
-          .select("data")
-          .eq("workspace_key", `learner:${user.id}`)
-          .maybeSingle();
-        if (workspaceError) return respond({ error: "Could not verify course access." }, 500);
-        const data = workspace?.data;
-        const hasPurchase = Array.isArray(data?.purchases) && data.purchases.some(
-          (purchase: Record<string, unknown>) => purchase.courseId === courseId && purchase.status === "Successful"
-        );
-        const hasEnrollment = Array.isArray(data?.enrollments) && data.enrollments.some(
-          (enrollment: Record<string, unknown>) => enrollment.courseId === courseId && enrollment.status === "Active"
-        );
-        if (!hasPurchase && !hasEnrollment) {
-          return respond({ error: "You must be enrolled in this course to watch its videos." }, 403);
+        const [accessResult, bundleResult] = await Promise.all([
+          supabase.from("course_access")
+            .select("status")
+            .eq("user_id", user.id)
+            .eq("course_id", courseId)
+            .maybeSingle(),
+          supabase.from("course_bundle_access")
+            .select("status")
+            .eq("user_id", user.id)
+            .maybeSingle()
+        ]);
+        if (accessResult.error || bundleResult.error) {
+          return respond({ error: "Could not verify course access." }, 500);
+        }
+        const hasFullAccess = accessResult.data?.status === "active" ||
+          bundleResult.data?.status === "active";
+        const canPreviewFirstModule = moduleIndex === 0 && course.status === "Published";
+        if (!hasFullAccess && !canPreviewFirstModule) {
+          return respond({ error: "Pay for full course access to watch this module." }, 403);
         }
       }
 

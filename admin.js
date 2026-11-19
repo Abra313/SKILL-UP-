@@ -22,7 +22,8 @@ const pageNames = {
   mentorship: "Mentorship",
   security: "Security & Privacy"
 };
-const COURSE_INSTRUCTOR = "Skill up Team";
+const COURSE_INSTRUCTOR = "Skill Up Hub Team";
+const COURSE_ACCESS_PRICE_NGN = 5000;
 const COURSE_MATERIAL_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm", "application/pdf"]);
 const COURSE_VIDEO_LIMIT = 512 * 1024 * 1024;
 const COURSE_PDF_LIMIT = 25 * 1024 * 1024;
@@ -49,7 +50,7 @@ const initialState = () => ({
   ].concat((window.skillUpAICourses || []).map((course) => ({
     ...course,
     price: 5000,
-    instructor: "SKILL-UP Team",
+    instructor: "Skill Up Hub Team",
     status: "Published",
     enrolled: 0,
     completion: 0,
@@ -116,8 +117,8 @@ const initialState = () => ({
   faqs: [
     { id: "FAQ-01", question: "How do I get started?", answer: "Explore the courses, choose a skill that matches your goals and follow the enrolment steps to begin learning.", status: "Published" },
     { id: "FAQ-02", question: "Do I need previous experience?", answer: "Many of our courses can accommodate beginners. Check the individual course requirements before enrolling.", status: "Published" },
-    { id: "FAQ-03", question: "Will I receive mentorship?", answer: "Mentorship and learning support are part of the SKILL-UP learning experience, according to the support arrangements for each programme.", status: "Published" },
-    { id: "FAQ-04", question: "Can SKILL-UP help me secure remote jobs?", answer: "We provide career preparation and support for finding opportunities. Employment is not guaranteed.", status: "Published" }
+    { id: "FAQ-03", question: "Will I receive mentorship?", answer: "Mentorship and learning support are part of the Skill Up Hub learning experience, according to the support arrangements for each programme.", status: "Published" },
+    { id: "FAQ-04", question: "Can Skill Up Hub help me secure remote jobs?", answer: "We provide career preparation and support for finding opportunities. Employment is not guaranteed.", status: "Published" }
   ],
   admins: [
     { id: currentUser.id, name: currentUser.name, email: currentUser.email, role: "Super admin", status: "Active" }
@@ -152,17 +153,36 @@ async function readData(source, learnerWorkspaces) {
     loaded.courses.push(...defaults.courses.filter((course) => !savedCourseIds.has(course.id)));
     loaded.catalogInitialized = true;
   }
-  loaded.courses = loaded.courses.map((course) => ({ ...course, instructor: COURSE_INSTRUCTOR }));
+  loaded.courses = loaded.courses.map((course) => ({
+    ...course,
+    price: COURSE_ACCESS_PRICE_NGN,
+    instructor: COURSE_INSTRUCTOR
+  }));
   removedSeedRecords = removeSeedRecords(loaded);
   const learnersById = new Map(learnerWorkspaces.map((workspace) => [
     workspace.workspace_key.slice("learner:".length),
     workspace.data
   ]));
-  const { data: accounts, error: profilesError } = await supabaseClient.client
-    .from("profiles")
-    .select("id,email,full_name,role,created_at")
-    .order("created_at", { ascending: false });
+  const [accountsResult, courseAccessResult, bundleAccessResult, coursePaymentsResult] = await Promise.all([
+    supabaseClient.client.from("profiles")
+      .select("id,email,full_name,role,created_at")
+      .order("created_at", { ascending: false }),
+    supabaseClient.client.from("course_access")
+      .select("user_id,course_id,source,payment_reference,amount_kobo,status,granted_at"),
+    supabaseClient.client.from("course_bundle_access")
+      .select("user_id,payment_reference,amount_kobo,status,granted_at"),
+    supabaseClient.client.from("course_payments")
+      .select("reference,user_id,course_id,plan,amount_kobo,currency,status,channel,created_at")
+      .order("created_at", { ascending: false })
+  ]);
+  const { data: accounts, error: profilesError } = accountsResult;
   if (profilesError) throw profilesError;
+  if (courseAccessResult.error) throw courseAccessResult.error;
+  if (bundleAccessResult.error) throw bundleAccessResult.error;
+  if (coursePaymentsResult.error) throw coursePaymentsResult.error;
+  const courseAccessRecords = courseAccessResult.data || [];
+  const bundleAccessRecords = bundleAccessResult.data || [];
+  const coursePaymentRecords = coursePaymentsResult.data || [];
   const courseById = new Map(loaded.courses.map((course) => [course.id, course]));
   const courseProgressTotals = new Map();
   const learnerSessions = [];
@@ -172,21 +192,13 @@ async function readData(source, learnerWorkspaces) {
   for (const account of accounts.filter((item) => ["learner", "user"].includes(item?.role) && item.id && item.email)) {
     const userId = account.id;
     const learner = learnersById.get(userId) || {};
-    const purchasesByCourse = new Map((learner?.purchases || []).map((purchase) => [purchase.courseId, purchase]));
-    for (const payment of loaded.payments.filter((item) => item.userId === userId || item.studentId === userId)) {
-      purchasesByCourse.set(payment.courseId, {
-        courseId: payment.courseId,
-        purchasedAt: payment.date,
-        amount: payment.amount,
-        status: payment.status,
-        receipt: payment.id
-      });
+    const enrolledCourseIds = new Set(courseAccessRecords
+      .filter((access) => access.user_id === userId && access.status === "active")
+      .map((access) => access.course_id));
+    if (bundleAccessRecords.some((access) => access.user_id === userId && access.status === "active")) {
+      loaded.courses.filter((course) => course.status === "Published")
+        .forEach((course) => enrolledCourseIds.add(course.id));
     }
-    const purchases = [...purchasesByCourse.values()];
-    const enrolledCourseIds = new Set([
-      ...purchases.filter((purchase) => purchase.status === "Successful").map((purchase) => purchase.courseId),
-      ...(learner?.enrollments || []).filter((enrollment) => enrollment.status === "Active").map((enrollment) => enrollment.courseId)
-    ]);
     const courseProgress = {};
     for (const courseId of enrolledCourseIds) {
       const progress = learner?.progress?.[courseId] || {};
@@ -218,23 +230,6 @@ async function readData(source, learnerWorkspaces) {
       source: "supabase"
     });
     if (!loaded.students.includes(student)) loaded.students.unshift(student);
-
-    for (const purchase of purchases) {
-      const payment = {
-        id: purchase.receipt || `ENR-${userId}-${purchase.courseId}`,
-        userId,
-        studentId: userId,
-        courseId: purchase.courseId,
-        amount: Number(purchase.amount) || 0,
-        fee: 0,
-        status: purchase.status,
-        date: purchase.purchasedAt || day(0),
-        method: "Enrollment record"
-      };
-      const paymentIndex = loaded.payments.findIndex((item) => item.userId === userId && item.courseId === payment.courseId);
-      if (paymentIndex < 0) loaded.payments.unshift(payment);
-      else loaded.payments[paymentIndex] = { ...loaded.payments[paymentIndex], ...payment };
-    }
 
     for (const request of learner?.enrollmentRequests || []) {
       learnerRequests.set(request.id, {
@@ -288,6 +283,30 @@ async function readData(source, learnerWorkspaces) {
       });
     }
   }
+  for (const payment of coursePaymentRecords) {
+    const status = {
+      pending: "Pending",
+      successful: "Successful",
+      failed: "Failed",
+      refunded: "Refunded"
+    }[payment.status] || "Pending";
+    const paymentRow = {
+      id: payment.reference,
+      userId: payment.user_id,
+      studentId: payment.user_id,
+      courseId: payment.plan === "bundle" ? "ALL_COURSES" : payment.course_id,
+      plan: payment.plan || "course",
+      amount: Number(payment.amount_kobo) / 100,
+      fee: 0,
+      status,
+      date: payment.created_at?.slice(0, 10) || day(0),
+      method: payment.channel ? `Paystack · ${payment.channel}` : "Paystack"
+    };
+    const existingIndex = loaded.payments.findIndex((item) => item.id === paymentRow.id);
+    if (existingIndex < 0) loaded.payments.push(paymentRow);
+    else loaded.payments[existingIndex] = paymentRow;
+  }
+
   loaded.enrollmentRequests = [...learnerRequests.values()];
   loaded.sessions = [...loaded.sessions.filter((session) => session.source !== "learner"), ...learnerSessions];
   loaded.reviews = [...loaded.reviews.filter((review) => review.source !== "learner"), ...learnerReviews];
@@ -326,7 +345,7 @@ const seedRecordMatches = {
     && ["Northstar Digital", "Open Canvas Studio", "Community listing"].includes(item.company),
   resources: (item) => String(item.link || "").startsWith("https://example.com/")
     && ["CV template for early-career developers", "Technical interview preparation guide", "Freelance application checklist"].includes(item.title),
-  faqs: (item) => ["How do I get started?", "Do I need previous experience?", "Will I receive mentorship?", "Can SKILL-UP help me secure remote jobs?"].includes(item.question),
+  faqs: (item) => ["How do I get started?", "Do I need previous experience?", "Will I receive mentorship?", "Can Skill Up Hub help me secure remote jobs?"].includes(item.question),
   testimonials: (item) => ["Amara O.", "Kemi B."].includes(item.name),
   activity: (item) => ["Course published: UI/UX Design", "Withdrawal request submitted by Kemi Balogun", "New mentorship session scheduled"].includes(item.message),
   audit: (item) => item.action === "Sample workspace initialized" && item.by === "Site Admin"
@@ -621,14 +640,13 @@ async function remapLearnerCourseProgress(courseId, indexMap, moduleCount) {
   }
 }
 
-async function removeUnreferencedCourseMedia(courseId, paths, videoIds = []) {
-  if (!paths.length && !videoIds.length) return;
+async function removeUnreferencedCourseMedia(paths, videoIds = []) {
+  if (!paths.length && !videoIds.length) return { deletedPaths: 0, deletedVideoIds: 0 };
   const [adminWorkspace, publicWorkspaceData] = await Promise.all([
     supabaseClient.loadWorkspace("admin"),
     supabaseClient.loadWorkspace("public")
   ]);
   const referencedMaterials = [...(adminWorkspace?.courses || []), ...(publicWorkspaceData?.courses || [])]
-    .filter((course) => course.id === courseId)
     .flatMap((course) => (Array.isArray(course.moduleMaterials) ? course.moduleMaterials : []))
     .filter(Boolean);
   const referencedPaths = new Set(referencedMaterials.map((material) => material.path).filter(Boolean));
@@ -642,6 +660,7 @@ async function removeUnreferencedCourseMedia(courseId, paths, videoIds = []) {
   if (unreferencedPaths.length !== paths.length || unreferencedVideoIds.length !== videoIds.length) {
     notify("Some uploaded files were kept because a saved course workspace still references them. Refresh the course and try again.", "error");
   }
+  return { deletedPaths: unreferencedPaths.length, deletedVideoIds: unreferencedVideoIds.length };
 }
 
 async function uploadBunnyVideo(file, onProgress) {
@@ -668,7 +687,12 @@ async function uploadBunnyVideo(file, onProgress) {
           const status = error.originalResponse?.getStatus();
           return !(status >= 400 && status < 500 && status !== 409 && status !== 423);
         },
-        onError: reject,
+        onError: (error) => {
+          const status = error.originalResponse?.getStatus();
+          reject(new Error(status
+            ? `Bunny resumable upload failed (HTTP ${status}): ${error.message}`
+            : `Bunny resumable upload failed: ${error.message}`));
+        },
         onProgress: (uploaded, total) => onProgress(Math.round((uploaded / total) * 100)),
         onSuccess: resolve
       });
@@ -731,11 +755,11 @@ function avatar(name, variant = "") {
 
 function courseById(id) { return state.courses.find((item) => item.id === id); }
 function studentById(id) { return state.students.find((item) => item.id === id); }
-function courseName(id) { return courseById(id)?.title || "Course unavailable"; }
+function courseName(id) { return id === "ALL_COURSES" ? "All courses (bundle)" : courseById(id)?.title || "Course unavailable"; }
 function studentName(id) { return studentById(id)?.name || "Student unavailable"; }
 
 function heading(title, description, actions = "") {
-  return `<div class="page-heading"><div><p class="heading-eyebrow">SKILL-UP ADMIN WORKSPACE</p><h1>${escapeHTML(title)}</h1>${description ? `<p>${description}</p>` : ""}</div><div class="page-actions">${actions}</div></div>`;
+  return `<div class="page-heading"><div><p class="heading-eyebrow">SKILL UP HUB ADMIN WORKSPACE</p><h1>${escapeHTML(title)}</h1>${description ? `<p>${description}</p>` : ""}</div><div class="page-actions">${actions}</div></div>`;
 }
 
 function tableShell(toolbar, columns, rows, emptyMessage = "Nothing to show yet.") {
@@ -808,9 +832,9 @@ function renderDashboard() {
     ["Referral partners", referralPartnerCount, "◎", referralAdminSummary ? "Live registered partner accounts" : referralAdminError || "Loading live referral data", "violet"],
     ["Available courses", state.courses.filter((item) => item.status === "Published").length, "▤", `${state.courses.length} total in course library`, "amber"],
     ["Approved enrollments", successfulPayments, "⌑", "Recorded enrollment activity", ""],
-    ["Enrolled course value", money(revenue), "↗", "Not verified payment revenue", "coral"],
+    ["Enrolled course value", money(revenue), "↗", "Recorded successful course and bundle payments", "coral"],
     ["Referral commissions", referralAdminSummary ? money(commission) : "—", "✳", referralAdminSummary ? "From verified course payments" : "Live commission data", "violet"],
-    ["Payout processing", "Off", "◷", "Payment provider not configured", "amber"]
+    ["Payout processing", "Manual", "◷", "Review bank-transfer requests in Referrals", "amber"]
   ];
   const stats = statData.map(([label, value, icon, foot, color]) => `<article class="stat-card"><div class="stat-top"><span class="stat-label">${label}</span><span class="stat-icon ${color}">${icon}</span></div><strong class="stat-value">${value}</strong><div class="stat-foot"><span>${foot}</span></div></article>`).join("");
   const transactions = [...state.payments].sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).slice(0, 5).map((payment, index) => `<div class="activity-item">${avatar(studentName(payment.studentId), ["", "avatar-rose", "avatar-blue", "avatar-violet", "avatar-amber"][index])}<div class="activity-copy"><strong>${escapeHTML(studentName(payment.studentId))} · ${escapeHTML(courseName(payment.courseId))}</strong><small>${escapeHTML(payment.id)} · ${relativeDate(payment.date)}</small></div><span class="activity-amount">${payment.status === "Successful" ? money(payment.amount) : statusBadge(payment.status)}</span></div>`).join("");
@@ -866,17 +890,17 @@ function renderFinance() {
   const pendingRequests = state.enrollmentRequests.filter((request) => request.status === "Pending").length;
   const totals = [
     ["Enrolled value", money(successful.reduce((sum, payment) => sum + payment.amount, 0)), `${successful.length} enrollment records`],
-    ["Payment processing", "Not connected", "No gateway transactions are recorded"],
+    ["Paystack processing", "Active", "Transactions are verified server-side"],
     ["Pending enrollment requests", pendingRequests, "Awaiting manual payment verification"]
   ];
   const search = activeFilters.search.toLowerCase();
   const filtered = state.payments.filter((payment) => (`${payment.id} ${studentName(payment.studentId)} ${courseName(payment.courseId)} ${payment.method}`).toLowerCase().includes(search)
     && (activeFilters.status === "All" || payment.status === activeFilters.status));
-  const rows = filtered.map((payment) => `<tr><td><strong>${escapeHTML(payment.id)}</strong></td><td>${escapeHTML(studentName(payment.studentId))}<small class="muted"><br>${escapeHTML(studentById(payment.studentId)?.email || "")}</small></td><td>${escapeHTML(courseName(payment.courseId))}</td><td><strong>${money(payment.amount)}</strong></td><td>${escapeHTML(payment.method)}</td><td>${dateLabel(payment.date)}</td><td>${statusBadge(payment.status)}</td><td><div class="table-actions">${payment.status === "Successful" ? `<button class="text-button danger" data-action="refund-payment" data-id="${payment.id}">Revoke access</button>` : "—"}</div></td></tr>`).join("");
+  const rows = filtered.map((payment) => `<tr><td><strong>${escapeHTML(payment.id)}</strong></td><td>${escapeHTML(studentName(payment.studentId))}<small class="muted"><br>${escapeHTML(studentById(payment.studentId)?.email || "")}</small></td><td>${escapeHTML(courseName(payment.courseId))}</td><td><strong>${money(payment.amount)}</strong></td><td>${escapeHTML(payment.method)}</td><td>${dateLabel(payment.date)}</td><td>${statusBadge(payment.status)}</td><td><div class="table-actions">${payment.status === "Successful" ? `<button class="text-button danger" data-action="refund-payment" data-id="${payment.id}">${payment.plan === "bundle" ? "Revoke bundle" : "Revoke access"}</button>` : "—"}</div></td></tr>`).join("");
   const requestRows = state.enrollmentRequests.map((request) => `<tr><td><strong>${escapeHTML(request.student)}</strong><small class="muted"><br>${escapeHTML(request.email)}</small></td><td>${escapeHTML(request.course)}</td><td>${dateLabel(request.requested_at?.slice(0, 10))}</td><td>${statusBadge(request.status)}</td><td><div class="table-actions">${request.status === "Pending" ? `<button class="text-button" data-action="approve-enrollment-request" data-id="${escapeHTML(request.id)}">Verify &amp; approve</button><button class="text-button danger" data-action="reject-enrollment-request" data-id="${escapeHTML(request.id)}">Reject</button>` : "—"}</div></td></tr>`).join("");
   const toolbar = `<div class="toolbar-left"><div class="search-field"><input type="search" data-filter="search" placeholder="Search transactions…" value="${escapeHTML(activeFilters.search)}" aria-label="Search transactions"></div><select class="field-control" data-filter="status" aria-label="Filter payment status"><option>All</option>${["Successful", "Pending", "Failed", "Refunded"].map((item) => `<option${activeFilters.status === item ? " selected" : ""}>${item}</option>`).join("")}</select></div><div class="toolbar-right"><button class="button button-soft button-small" data-action="export-payments">↓ Financial CSV</button></div>`;
-  return `${heading("Payments & finance", "Review enrollment records and requests. Verify payments outside the app before granting course access.", `<span class="button button-soft">Payment gateway not connected</span>`)}
-    <div class="inline-note"><span>ⓘ</span><div><strong>Manual verification required.</strong> Approving an enrollment request records the course price and grants access; it does not charge a learner or verify a payment. Only approve after confirming payment independently. Marking an enrollment refunded revokes access but does not process a refund.</div></div>
+  return `${heading("Payments & finance", "Review verified Paystack payments and legacy enrollment requests.", `<span class="button button-soft">₦5,000 per course · ₦25,000 all courses</span>`)}
+    <div class="inline-note"><span>ⓘ</span><div><strong>Paystack payments are verified server-side.</strong> Access is unlocked only after Paystack confirms the exact plan price. Revoking access does not issue a Paystack refund.</div></div>
     <div class="summary-cards">${totals.map(([label, value, foot]) => `<div class="summary-card"><span>${label}</span><strong>${value}</strong><small>${foot}</small></div>`).join("")}</div>
     ${tableShell(toolbar, ["Enrollment record", "Student", "Course", "Recorded value", "Record type", "Date", "Status", "Action"], rows, "No enrollment records match these filters.")}
     <section class="panel data-panel"><div class="panel-header"><div><h2>Enrollment requests</h2><p>${pendingRequests} awaiting review</p></div></div><div class="inline-note"><span>ⓘ</span><div>Verify any payment independently before approving. Rejected requests can be resubmitted by the learner.</div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Learner</th><th>Course</th><th>Requested</th><th>Status</th><th>Actions</th></tr></thead><tbody>${requestRows || `<tr><td class="table-empty" colspan="5">No enrollment requests.</td></tr>`}</tbody></table></div></section>`;
@@ -892,10 +916,11 @@ function renderReferrals() {
   const totalConversions = partners.reduce((sum, referral) => sum + (Number(referral.conversions) || 0), 0);
   const totalCommission = partners.reduce((sum, referral) => sum + (Number(referral.commission) || 0), 0);
   return `${heading("Referral management", "Live registrations and commissions from independently verified course payments.", `<button class="button button-primary" data-action="set-referral-rate">Set commission rate</button>`)}
-    <div class="summary-cards"><div class="summary-card"><span>Referral partners</span><strong>${partners.length}</strong><small>Registered learner accounts</small></div><div class="summary-card"><span>Attributed registrations</span><strong>${totalRegistrations}</strong><small>Linked to referral codes</small></div><div class="summary-card"><span>Verified purchases</span><strong>${totalConversions}</strong><small>Payments verified by an administrator</small></div><div class="summary-card"><span>Commissions recorded</span><strong>${money(totalCommission)}</strong><small>Pending payout configuration</small></div></div>
+    <div class="summary-cards"><div class="summary-card"><span>Referral partners</span><strong>${partners.length}</strong><small>Registered learner accounts</small></div><div class="summary-card"><span>Attributed registrations</span><strong>${totalRegistrations}</strong><small>Linked to referral codes</small></div><div class="summary-card"><span>Verified purchases</span><strong>${totalConversions}</strong><small>Course and bundle payments confirmed by Paystack</small></div><div class="summary-card"><span>Commissions recorded</span><strong>${money(totalCommission)}</strong><small>Accrued from verified purchases</small></div></div>
     ${referralAdminError ? `<div class="inline-note"><span>ⓘ</span><div>${escapeHTML(referralAdminError)}</div></div>` : ""}
-    <section class="panel data-panel"><div class="panel-header"><div><h2>Referral partners</h2><p>Updated as registrations and verified payments arrive</p></div><span class="muted">Commission rate: ${Number(referralAdminSummary?.rate) || 0}%</span></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Partner</th><th>Referral code</th><th>Registrations</th><th>Verified purchases</th><th>Commission</th><th>Status</th></tr></thead><tbody>${rows || `<tr><td class="table-empty" colspan="6">No referral registrations yet.</td></tr>`}</tbody></table></div></section>
-    <section class="panel"><div class="panel-body"><h2>Payment and payout processing</h2><p>Commissions are credited only after an administrator independently verifies a course payment. Online payment collection and automatic payouts are not configured.</p></div></section>`;
+    <section class="panel data-panel"><div class="panel-header"><div><h2>Referral partners</h2><p>Updated as registrations and verified payments arrive</p></div><span class="muted">Commission rate: ${Number(referralAdminSummary?.rate) || 0}%</span></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Partner</th><th>Referral code</th><th>Registrations</th><th>Verified purchases</th><th>Commission earned</th><th>Status</th></tr></thead><tbody>${rows || `<tr><td class="table-empty" colspan="6">No referral registrations yet.</td></tr>`}</tbody></table></div></section>
+    <section class="panel data-panel"><div class="panel-header"><div><h2>Withdrawal requests</h2><p>Manually transfer funds to the saved bank account before marking a request paid.</p></div><button class="button button-soft button-small" data-action="refresh-referrals">Refresh requests</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Learner</th><th>Amount</th><th>Bank account</th><th>Requested</th><th>Status</th><th>Actions</th></tr></thead><tbody>${(referralAdminSummary?.withdrawals || []).map((item) => `<tr><td><strong>${escapeHTML(item.learner?.full_name || "Learner")}</strong><small class="muted"><br>${escapeHTML(item.learner?.email || item.user_id)}</small></td><td><strong>${money(item.amount)}</strong></td><td>${escapeHTML(item.account_holder_name)}<small class="muted"><br>${escapeHTML(item.bank_name)} · ${escapeHTML(item.account_number)}</small></td><td>${dateLabel(item.created_at?.slice(0, 10))}</td><td>${statusBadge(item.status)}</td><td><div class="table-actions">${item.status === "pending" ? `<button class="text-button" data-action="pay-referral-withdrawal" data-id="${escapeHTML(item.id)}">Mark paid</button><button class="text-button danger" data-action="reject-referral-withdrawal" data-id="${escapeHTML(item.id)}">Reject</button>` : "—"}</div></td></tr>`).join("") || `<tr><td class="table-empty" colspan="6">No withdrawal requests.</td></tr>`}</tbody></table></div></section>
+    <section class="panel"><div class="panel-body"><h2>Manual payout process</h2><p>Referral commissions are credited after Paystack confirms a course or all-course payment. Bank transfers are performed outside the app; mark a request paid only after the transfer is complete. Rejecting a request releases its reserved balance.</p></div></section>`;
 }
 
 function renderMentorship() {
@@ -1005,9 +1030,10 @@ function renderAdminSecurity() {
         <div class="security-action-row"><button class="button button-soft button-small" data-action="edit-legal">Edit privacy policy &amp; terms</button></div>
         <p class="security-help">Published notices are available from the public website footer. Review policy accuracy before publication.</p>
       </section>
-      <section class="settings-card"><h2>Connected services &amp; recent activity</h2><p>Enrollment data syncs to your account. Email and payment delivery are not configured.</p>
+      <section class="settings-card"><h2>Connected services &amp; recent activity</h2><p>Course checkout uses Paystack. Email delivery is not configured.</p>
         <div class="setting-row"><div><strong>Course enrollment</strong><small>Enrollment requests and approvals are synced</small></div>${statusBadge("Connected")}</div>
-        <div class="setting-row"><div><strong>Online payments / email</strong><small>Providers are not connected</small></div>${statusBadge("Not connected")}</div>
+        <div class="setting-row"><div><strong>Paystack course checkout</strong><small>Requires PAYSTACK_SECRET_KEY in Supabase Edge Function Secrets</small></div>${statusBadge("Setup required")}</div>
+        <div class="setting-row"><div><strong>Email notifications</strong><small>Email delivery provider is not configured</small></div>${statusBadge("Not connected")}</div>
         <div class="activity-list">${audit || `<div class="empty-state">No activity recorded yet.</div>`}</div>
       </section>
     </div>
@@ -1243,7 +1269,7 @@ function courseModuleEditorRow(index, title = "", material = null, originalIndex
     <header><span>Module ${index + 1}</span><button type="button" class="text-button danger" data-course-module-action="remove">Remove</button></header>
     <label>Module title<input type="text" data-module-title value="${escapeHTML(title)}" placeholder="Enter a module title"></label>
     <label>Video or PDF<input type="file" data-module-file accept="video/mp4,video/quicktime,video/webm,application/pdf,.mp4,.mov,.webm,.pdf"></label>
-    ${fileName ? `<div class="course-module-current-file"><span>${typeLabel} attached: ${escapeHTML(fileName)}</span><label><input type="checkbox" data-remove-material> Remove current file</label></div>` : `<small>Optional · MP4, MOV, WebM or PDF</small>`}
+    ${fileName ? `<div class="course-module-current-file"><span>${typeLabel} attached: ${escapeHTML(fileName)}</span><label><input type="checkbox" data-remove-material> Delete from storage when saved</label></div>` : `<small>Optional · MP4, MOV, WebM or PDF</small>`}
     <small data-module-upload-status aria-live="polite"></small>
   </article>`;
 }
@@ -1264,7 +1290,14 @@ function courseForm(course = {}) {
   return [
     field("Course title", "title", course.title || "", { required: true }),
     field("Category", "category", course.category || state.categories[0] || "", { required: true, placeholder: "Create or select a category" }),
-    field("Price (NGN)", "price", course.price ?? 5000, { type: "number", min: 0, required: true }),
+    field("Full course access (NGN)", "price", COURSE_ACCESS_PRICE_NGN, {
+      type: "number",
+      min: COURSE_ACCESS_PRICE_NGN,
+      max: COURSE_ACCESS_PRICE_NGN,
+      required: true,
+      readOnly: true,
+      help: "Fixed price: ₦5,000 per course. Module 1 remains free."
+    }),
     field("Instructor", "instructor", COURSE_INSTRUCTOR, { required: true, readOnly: true }),
     field("Status", "status", course.status || "Draft", { type: "select", choices: ["Draft", "Published"] }),
     field("Show this course on the landing page", "featured", Boolean(course.featured), { type: "checkbox", full: true, help: "Featured courses appear on the public homepage. All published courses remain in Explore courses." }),
@@ -1348,7 +1381,7 @@ async function handleAction(action, id) {
       break;
     case "admin-enable-mfa": {
       try {
-        const { data, error } = await supabaseClient.client.auth.mfa.enroll({ factorType: "totp", friendlyName: "SKILL-UP administrator account" });
+        const { data, error } = await supabaseClient.client.auth.mfa.enroll({ factorType: "totp", friendlyName: "Skill Up Hub administrator account" });
         if (error) throw error;
         adminPendingMfaFactor = { id: data.id };
         const qr = /^data:image\/svg\+xml(?:;|,)/i.test(String(data.totp?.qr_code || "")) ? `<img class="mfa-qr-code" src="${escapeHTML(data.totp.qr_code)}" alt="Authenticator setup QR code">` : "";
@@ -1362,7 +1395,7 @@ async function handleAction(action, id) {
       try {
         const { data, error } = await supabaseClient.client.auth.mfa.challenge({ factorId: id });
         if (error) throw error;
-        openModal("Confirm two-factor removal", `<p class="security-help">Enter the current 6-digit code for your SKILL-UP authenticator entry. Check that your device date and time are set automatically.</p><form data-form="admin-mfa-verify" data-factor="${escapeHTML(id)}" data-challenge="${escapeHTML(data.id)}" data-purpose="remove">${field("Authenticator code", "code", "", { required: true, pattern: "[0-9]{6}", maxLength: 6, inputMode: "numeric", autocomplete: "one-time-code" })}<div class="form-actions"><button type="button" class="button button-soft" data-close-modal>Cancel</button><button type="submit" class="button button-danger">Verify and turn off</button></div></form>`);
+        openModal("Confirm two-factor removal", `<p class="security-help">Enter the current 6-digit code for your Skill Up Hub authenticator entry. Check that your device date and time are set automatically.</p><form data-form="admin-mfa-verify" data-factor="${escapeHTML(id)}" data-challenge="${escapeHTML(data.id)}" data-purpose="remove">${field("Authenticator code", "code", "", { required: true, pattern: "[0-9]{6}", maxLength: 6, inputMode: "numeric", autocomplete: "one-time-code" })}<div class="form-actions"><button type="button" class="button button-soft" data-close-modal>Cancel</button><button type="submit" class="button button-danger">Verify and turn off</button></div></form>`);
       } catch (error) {
         notify(`Could not verify the authenticator: ${error.message}`, "error");
       }
@@ -1472,14 +1505,34 @@ async function handleAction(action, id) {
       break;
     case "student-details": if (student) studentDetails(student); break;
     case "refund-payment":
-      if (payment && confirmAction(`Mark this enrollment as refunded? This revokes course access but does not process a payment refund.`)) {
+      if (payment && confirmAction(`Mark this payment as refunded? This revokes ${payment.plan === "bundle" ? "all-course" : "course"} access but does not process a Paystack refund.`)) {
         const saved = commit(() => {
           payment.status = "Refunded";
           addAudit(`Enrollment marked refunded: ${payment.id}`);
         }, "Enrollment status updated. No payment refund was processed.");
         if (saved) {
           try {
-            await updateLearnerEnrollment(payment.userId, payment.courseId, "Refunded", payment);
+            if (payment.userId) {
+              const { error: accessError } = payment.plan === "bundle"
+                ? await supabaseClient.client.from("course_bundle_access")
+                  .update({ status: "revoked", updated_at: new Date().toISOString() })
+                  .eq("user_id", payment.userId)
+                  .eq("payment_reference", payment.id)
+                : await supabaseClient.client.from("course_access")
+                  .update({ status: "revoked", updated_at: new Date().toISOString() })
+                  .eq("user_id", payment.userId)
+                  .eq("course_id", payment.courseId)
+                  .eq("payment_reference", payment.id);
+              if (accessError) throw accessError;
+              const { error: paymentError } = await supabaseClient.client.from("course_payments")
+                .update({ status: "refunded" })
+                .eq("reference", payment.id)
+                .eq("user_id", payment.userId);
+              if (paymentError) throw paymentError;
+            }
+            if (payment.plan !== "bundle") {
+              await updateLearnerEnrollment(payment.userId, payment.courseId, "Refunded", payment);
+            }
           } catch (error) {
             notify(`Enrollment was updated, but learner access could not be synced: ${error.message}`, "error");
             break;
@@ -1495,13 +1548,12 @@ async function handleAction(action, id) {
       break;
     case "approve-enrollment-request":
       if (enrollmentRequest?.status === "Pending" && confirmAction(`Confirm that you independently verified payment for ${enrollmentRequest.student}'s ${enrollmentRequest.course} request? This grants course access but does not process a payment.`)) {
-        const course = state.courses.find((item) => item.id === enrollmentRequest.course_id);
         const paymentRecord = {
           id: `MANUAL-${enrollmentRequest.course_id}-${Date.now()}`,
           userId: enrollmentRequest.user_id || "local-learner",
           studentId: enrollmentRequest.user_id || "local-learner",
           courseId: enrollmentRequest.course_id,
-          amount: Number(course?.price) || 0,
+          amount: COURSE_ACCESS_PRICE_NGN,
           fee: 0,
           status: "Successful",
           date: day(0),
@@ -1520,6 +1572,17 @@ async function handleAction(action, id) {
         if (saved) {
           try {
             await updateLearnerEnrollment(paymentRecord.userId, paymentRecord.courseId, "Approved", paymentRecord);
+            const { error: accessError } = await supabaseClient.client.from("course_access").upsert({
+              user_id: paymentRecord.userId,
+              course_id: paymentRecord.courseId,
+              source: "manual",
+              payment_reference: paymentRecord.id,
+              amount_kobo: COURSE_ACCESS_PRICE_NGN * 100,
+              status: "active",
+              granted_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }, { onConflict: "user_id,course_id" });
+            if (accessError) throw accessError;
           } catch (error) {
             notify(`Enrollment was approved, but learner access could not be synced: ${error.message}`, "error");
             break;
@@ -1563,13 +1626,30 @@ async function handleAction(action, id) {
       exportCsv("skill-up-demo-dashboard.csv", ["Metric", "Value"], [["Registered students", state.students.length], ["Active students", state.students.filter((item) => item.status === "Active").length], ["Published courses", state.courses.filter((item) => item.status === "Published").length], ["Successful payments", state.payments.filter((item) => item.status === "Successful").length], ["Demo gross revenue NGN", state.payments.filter((item) => item.status === "Successful").reduce((sum, item) => sum + item.amount, 0)], ["Referral registrations", referralAdminSummary?.partners.reduce((sum, item) => sum + (Number(item.referrals) || 0), 0) || 0], ["Referral conversions", referralAdminSummary?.partners.reduce((sum, item) => sum + (Number(item.conversions) || 0), 0) || 0], ["Referral commissions NGN", referralAdminSummary?.partners.reduce((sum, item) => sum + (Number(item.commission) || 0), 0) || 0]]);
       break;
     case "set-referral-rate":
-      formModal("Set referral commission rate", "referral-rate", "", field("Commission rate (%)", "rate", referralAdminSummary?.rate ?? 15, { type: "number", min: 0, max: 100, required: true }), "Save rate");
+      formModal("Set referral commission rate", "referral-rate", "", field("Commission rate (%)", "rate", referralAdminSummary?.rate ?? 20, { type: "number", min: 0, max: 100, required: true }), "Save rate");
       break;
     case "refresh-referrals":
       referralAdminSummary = null;
       referralAdminError = "";
       void ensureReferralAdminSummary();
       break;
+    case "pay-referral-withdrawal":
+    case "reject-referral-withdrawal": {
+      const status = action === "pay-referral-withdrawal" ? "paid" : "rejected";
+      const message = status === "paid"
+        ? "Confirm that you have completed the bank transfer before marking this request paid."
+        : "Reject this withdrawal request? Its reserved amount will return to the learner's available balance.";
+      if (!confirmAction(message)) break;
+      try {
+        await supabaseClient.reviewReferralWithdrawal(id, status);
+        await refreshReferralAdminSummary();
+        render();
+        notify(status === "paid" ? "Withdrawal marked paid." : "Withdrawal rejected and balance released.");
+      } catch (error) {
+        notify(`Could not update the withdrawal request: ${error.message}`, "error");
+      }
+      break;
+    }
     case "add-session": formModal("Schedule mentorship session", "session", "", sessionForm(), "Schedule session"); break;
     case "edit-mentorship-program": formModal("Mentorship programme flyer", "mentorship-program", "", mentorshipProgramForm(), "Save programme"); break;
     case "delete-mentorship-flyer":
@@ -1844,15 +1924,15 @@ async function handleFormSubmit(form) {
         return;
       }
       const courseData = {
-        title: values.title.trim(), category: values.category, price: Number(values.price),
+        title: values.title.trim(), category: values.category, price: COURSE_ACCESS_PRICE_NGN,
         instructor: COURSE_INSTRUCTOR, status: values.status, featured: values.featured === "true", thumbnail: uploadedImage || values.thumbnail.trim(),
         banner: values.banner.trim(), description: values.description.trim(), introduction: values.introduction.trim(),
         objectives: values.objectives.trim(), modules: moduleEntries.map((module) => module.title).join("\n"),
         materials: values.materials.trim(), assignments: values.assignments.trim(), quizzes: values.quizzes.trim(),
         requirements: values.requirements.trim()
       };
-      if (!courseData.title || !courseData.instructor || !courseData.description || !Number.isFinite(courseData.price) || courseData.price < 0) {
-        notify("Complete the required course fields with a valid price.", "error");
+      if (!courseData.title || !courseData.instructor || !courseData.description) {
+        notify("Complete the required course fields.", "error");
         return;
       }
       const oldModuleCount = window.skillUpCourseUtils.normalizeModules(current?.modules).length;
@@ -1930,7 +2010,7 @@ async function handleFormSubmit(form) {
         const saved = await persist(current ? "Course changes saved." : "Course created.");
         if (!saved) {
           try {
-            await removeUnreferencedCourseMedia(courseId, uploadedPaths, uploadedVideoIds);
+            await removeUnreferencedCourseMedia(uploadedPaths, uploadedVideoIds);
           } catch (cleanupError) {
             notify(`Course sync failed and the new uploads could not be safely cleaned up: ${cleanupError.message}`, "error");
           }
@@ -1946,14 +2026,16 @@ async function handleFormSubmit(form) {
         closeModal();
         if (oldPaths.length || oldVideoIds.length) {
           try {
-            await removeUnreferencedCourseMedia(courseId, oldPaths, oldVideoIds);
+            const deleted = await removeUnreferencedCourseMedia(oldPaths, oldVideoIds);
+            const deletedCount = deleted.deletedPaths + deleted.deletedVideoIds;
+            if (deletedCount) notify(`${deletedCount} replaced lesson file${deletedCount === 1 ? "" : "s"} deleted.`);
           } catch (cleanupError) {
             notify(`The course was saved, but a replaced lesson file could not be deleted: ${cleanupError.message}`, "error");
           }
         }
       } catch (error) {
         try {
-          await removeUnreferencedCourseMedia(courseId, uploadedPaths, uploadedVideoIds);
+          await removeUnreferencedCourseMedia(uploadedPaths, uploadedVideoIds);
         } catch (cleanupError) {
           notify(`Upload failed and an incomplete upload could not be removed: ${cleanupError.message}`, "error");
         }

@@ -23,6 +23,7 @@ a { color: inherit; text-decoration: none; }
 .learner-sidebar { position: fixed; z-index: 20; inset: 0 auto 0 0; display: flex; width: 248px; flex-direction: column; padding: 22px 15px 13px; background: var(--learner-deepest); color: #eef4ed; }
 .learner-brand { display: flex; align-items: center; gap: 9px; width: fit-content; margin: 2px 0 35px 5px; }
 .learner-brand img { width: 112px; padding: 4px 7px; border-radius: 5px; background: #102f31; }
+.learner-brand .brand-hub-label { margin-left: -5px; }
 .learner-brand > span { padding: 4px 6px; border: 1px solid rgba(201,242,125,.3); border-radius: 3px; color: var(--learner-lime); font-size: 12px; font-weight: 700; letter-spacing: .8px; }
 .learner-workspace-label { margin: 0 0 10px 12px; color: #78918a; font-size: 12px; font-weight: 700; letter-spacing: 1.2px; }
 .learner-nav { display: grid; gap: 4px; }
@@ -289,6 +290,43 @@ a { color: inherit; text-decoration: none; }
 .referral-step-connector { position: absolute; top: 22px; right: -15px; z-index: 1; display: grid; width: 20px; height: 20px; place-items: center; border: 1px solid var(--learner-line); border-radius: 50%; background: var(--learner-bg); color: #87938d; font-size: 12px; }
 .referral-activity-grid { align-items: start; }
 .referral-rewards-note { margin: 0; color: #7b8982; font-size: 12px; line-height: 1.7; }
+.course-purchase-panel { overflow: hidden; margin-top: 14px; border-color: #e4ebe4; box-shadow: 0 12px 32px rgba(16,56,58,.045); }
+.catalog-billing { margin: 0 0 18px; }
+.course-room-layout-free { grid-template-columns: minmax(0, 1fr); }
+.course-plan-grid-single { grid-template-columns: minmax(0, 1fr); }
+.course-plan-grid-single .course-plan-card { max-width: 680px; }
+.course-purchase-header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 23px 24px; border-bottom: 1px solid #edf1ed; background: linear-gradient(110deg, #f8fbf7, #fffefa); }
+.course-purchase-header .learner-kicker { margin: 0 0 6px !important; }
+.course-purchase-header h2 { margin: 0; color: var(--learner-deep); font-family: var(--learner-display); font-size: clamp(18px, 2vw, 23px); letter-spacing: -.5px; }
+.course-purchase-header p { margin: 6px 0 0; color: #78877f; font-size: 12px; line-height: 1.6; }
+.course-payment-secure { flex: 0 0 auto; padding: 8px 11px; border: 1px solid #e3ebe2; border-radius: 999px; background: #fff; color: #60736a; font-size: 11px; font-weight: 700; }
+.course-plan-grid, .referral-payout-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.course-plan-card { position: relative; display: flex; min-width: 0; flex-direction: column; padding: 22px; border: 1px solid #e6ece7; border-radius: 10px; background: #fff; box-shadow: 0 5px 16px rgba(16,56,58,.035); }
+.course-plan-tag { width: fit-content; padding: 5px 8px; border-radius: 4px; background: #edf6ef; color: var(--learner-teal); font-size: 10px; font-weight: 800; letter-spacing: .7px; }
+.course-plan-card h3, .referral-payout-grid h3 { margin: 15px 0 5px; color: var(--learner-deep); font-family: var(--learner-display); font-size: 17px; }
+.course-plan-summary { min-height: 37px; margin: 0; color: #78877f; font-size: 12px; line-height: 1.55; }
+.course-plan-price { display: flex; align-items: baseline; gap: 8px; margin: 18px 0 14px; padding-bottom: 15px; border-bottom: 1px solid #edf1ed; }
+.course-plan-price strong { color: var(--learner-deep); font-family: var(--learner-display); font-size: clamp(23px, 3vw, 29px); letter-spacing: -.8px; }
+.course-plan-price span { color: #83908a; font-size: 11px; }
+.course-plan-select-label { margin: 1px 0 7px; color: #53665e; font-size: 11px; font-weight: 700; }
+.course-plan-select { width: 100%; min-height: 42px; padding: 0 11px; border: 1px solid #dfe8df; border-radius: 6px; background: #fff; color: var(--learner-ink); font-size: 12px; }
+.course-plan-select:focus { outline: 2px solid rgba(0,143,126,.25); outline-offset: 1px; border-color: var(--learner-teal); }
+.course-plan-benefits { display: grid; gap: 10px; padding: 0; margin: 0 0 20px; color: #53665e; font-size: 12px; line-height: 1.5; list-style: none; }
+.course-plan-benefits li { display: flex; align-items: flex-start; gap: 8px; }
+.course-plan-benefits li::before { color: var(--learner-teal); content: "✓"; font-weight: 800; }
+.course-plan-card .learner-button { width: 100%; min-height: 42px; margin-top: auto; }
+.course-plan-featured { border-color: #bbd993; background: linear-gradient(145deg, #f8fcef, #fff); box-shadow: 0 10px 24px rgba(86,125,43,.08); }
+.course-plan-recommendation { position: absolute; top: 0; right: 18px; padding: 6px 9px; border-radius: 0 0 5px 5px; background: var(--learner-lime); color: var(--learner-deep); font-size: 9px; font-weight: 800; letter-spacing: .6px; }
+.course-plan-featured .course-plan-tag { margin-top: 18px; background: #eaf5d9; }
+.referral-payout-grid { align-items: start; }
+.referral-payout-grid > form, .referral-payout-grid > div { min-width: 0; }
+.referral-payout-grid .learner-field { margin: 10px 0; }
+.referral-available-balance { display: grid; gap: 4px; padding: 12px; margin: 12px 0; border: 1px solid #e6ecdf; border-radius: 5px; background: #f8faf5; }
+.referral-available-balance span, .referral-available-balance small { color: #78877f; font-size: 12px; }
+.referral-available-balance strong { color: var(--learner-deep); font-family: var(--learner-display); font-size: 20px; }
+.referral-withdrawals-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 18px 0 8px; font-family: var(--learner-display); font-size: 13px; }
+.referral-withdrawals-heading h3 { margin: 0; font: inherit; }
+.referral-payout-grid button:disabled { cursor: not-allowed; opacity: .55; }
 .account-profile { display: grid; grid-template-columns: minmax(220px, .72fr) minmax(0, 1.28fr); gap: 13px; }
 .profile-card { padding: 17px; border: 1px solid var(--learner-line); border-radius: 5px; background: white; text-align: center; }
 .profile-photo { width: 74px; height: 74px; margin: 0 auto 10px; overflow: hidden; border: 4px solid #f0f4e9; border-radius: 50%; background: var(--learner-lime); color: var(--learner-deep); font-family: var(--learner-display); font-size: 22px; font-weight: 700; line-height: 66px; }
@@ -397,6 +435,9 @@ a { color: inherit; text-decoration: none; }
   .mentorship-feature-join { grid-column: 1 / -1; justify-self: stretch; text-align: center; }
   .referral-hero { grid-template-columns: 1fr; gap: 17px; }
   .referral-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .course-plan-grid, .referral-payout-grid { grid-template-columns: 1fr; }
+  .course-purchase-header { align-items: flex-start; flex-direction: column; padding: 19px; }
+  .course-plan-card { padding: 19px; }
   .referral-journey { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .referral-step-connector { display: none; }
 }
